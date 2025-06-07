@@ -1,0 +1,14 @@
+/docs/
+/lib/
+/bin/
+/.shards/
+*.dwarf
+
+# Libraries don't need dependency lock
+# Uncomment this if you want to commit the lock file
+/shard.lock
+
+# crystal-lang extensions
+*.cr.swp
+*~
+*.tmp
