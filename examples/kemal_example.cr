@@ -4,7 +4,7 @@ require "../src/ht2"
 # Example: Kemal application running over HTTP/2
 
 # Define Kemal routes
-get "/" do |env|
+get "/" do |_env|
   "Welcome to Kemal over HTTP/2!"
 end
 
@@ -53,7 +53,7 @@ class KemalHTTP2Adapter
         context : HTTP::Server::Context = HTTP::Server::Context.new(http_request, http_response)
 
         # Process through Kemal handlers
-        kemal_handlers.each { |handler| handler.call(context) }
+        kemal_handlers.each(&.call(context))
 
         # Convert response back to HTTP/2
         response.status = http_response.status_code
@@ -132,7 +132,7 @@ server = HT2::Server.new(
   handler: handler,
   tls_context: tls_context,
   max_concurrent_streams: 100_u32,
-  initial_window_size: 65535_u32
+  initial_window_size: 65_535_u32
 )
 
 puts "🚀 Kemal is running over HTTP/2!"

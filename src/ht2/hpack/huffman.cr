@@ -42,7 +42,7 @@ module HT2
         end
       end
 
-      def decode(data : Bytes, &block : UInt8 -> _)
+      def decode(data : Bytes, &)
         return if data.empty?
 
         # Build decode tree for efficient decoding

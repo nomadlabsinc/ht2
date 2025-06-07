@@ -1,15 +1,15 @@
 module HT2
   module Security
     # Maximum sizes to prevent resource exhaustion
-    MAX_HEADER_LIST_SIZE      =  8192_u32 # Maximum size of decompressed headers
-    MAX_CONTINUATION_SIZE     = 32768_u32 # Maximum accumulated CONTINUATION frames
-    MAX_DYNAMIC_TABLE_ENTRIES =  1000_u32 # Maximum entries in HPACK dynamic table
-    MAX_PING_QUEUE_SIZE       =    10_u32 # Maximum pending ping responses
-    MAX_SETTINGS_PER_SECOND   =    10_u32 # Rate limit for SETTINGS frames
-    MAX_PING_PER_SECOND       =    10_u32 # Rate limit for PING frames
-    MAX_RST_PER_SECOND        =   100_u32 # Rate limit for RST_STREAM frames
-    MAX_PRIORITY_PER_SECOND   =   100_u32 # Rate limit for PRIORITY frames
-    MAX_TOTAL_STREAMS         = 10000_u32 # Maximum total streams per connection
+    MAX_HEADER_LIST_SIZE      =   8192_u32 # Maximum size of decompressed headers
+    MAX_CONTINUATION_SIZE     = 32_768_u32 # Maximum accumulated CONTINUATION frames
+    MAX_DYNAMIC_TABLE_ENTRIES =   1000_u32 # Maximum entries in HPACK dynamic table
+    MAX_PING_QUEUE_SIZE       =     10_u32 # Maximum pending ping responses
+    MAX_SETTINGS_PER_SECOND   =     10_u32 # Rate limit for SETTINGS frames
+    MAX_PING_PER_SECOND       =     10_u32 # Rate limit for PING frames
+    MAX_RST_PER_SECOND        =    100_u32 # Rate limit for RST_STREAM frames
+    MAX_PRIORITY_PER_SECOND   =    100_u32 # Rate limit for PRIORITY frames
+    MAX_TOTAL_STREAMS         = 10_000_u32 # Maximum total streams per connection
 
     # Window size limits
     MAX_WINDOW_SIZE = 0x7FFFFFFF_i64 # 2^31 - 1

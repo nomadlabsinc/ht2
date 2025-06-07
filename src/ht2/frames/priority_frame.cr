@@ -19,7 +19,7 @@ module HT2
 
       dep = @priority.stream_dependency
       bytes[0] = (dep >> 24).to_u8
-      bytes[0] |= 0x80 if @priority.exclusive
+      bytes[0] |= 0x80 if @priority.exclusive?
       bytes[1] = (dep >> 16).to_u8
       bytes[2] = (dep >> 8).to_u8
       bytes[3] = dep.to_u8

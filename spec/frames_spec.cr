@@ -109,7 +109,7 @@ describe HT2::HeadersFrame do
     parsed_priority = parsed.priority || raise "No priority"
     parsed_priority.stream_dependency.should eq(3)
     parsed_priority.weight.should eq(15)
-    parsed_priority.exclusive.should be_true
+    parsed_priority.exclusive?.should be_true
   end
 end
 

@@ -104,7 +104,7 @@ describe HT2::HPACK::Encoder do
     encoder.dynamic_table.size.should eq(1)
 
     # Reduce table size to force eviction
-    encoder.set_max_table_size(0_u32)
+    encoder.max_table_size = 0_u32
     encoder.dynamic_table.size.should eq(0)
   end
 end

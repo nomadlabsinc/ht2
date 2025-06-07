@@ -5,7 +5,7 @@ module HT2
     getter stream : Stream
     getter headers : HTTP::Headers
     getter status : Int32
-    getter closed : Bool
+    getter? closed : Bool
 
     @headers_sent : Bool
     @body : IO::Memory
@@ -57,10 +57,6 @@ module HT2
         # Send headers with END_STREAM
         send_headers(end_stream: true)
       end
-    end
-
-    def closed? : Bool
-      @closed
     end
 
     # Convert from Lucky::Response if needed

@@ -43,7 +43,7 @@ module HT2
       if priority = @priority
         dep = priority.stream_dependency
         bytes[offset] = (dep >> 24).to_u8
-        bytes[offset] |= 0x80 if priority.exclusive
+        bytes[offset] |= 0x80 if priority.exclusive?
         bytes[offset + 1] = (dep >> 16).to_u8
         bytes[offset + 2] = (dep >> 8).to_u8
         bytes[offset + 3] = dep.to_u8
@@ -108,7 +108,7 @@ module HT2
   struct PriorityData
     getter stream_dependency : UInt32
     getter weight : UInt8
-    getter exclusive : Bool
+    getter? exclusive : Bool
 
     def initialize(@stream_dependency : UInt32, @weight : UInt8, @exclusive : Bool = false)
     end

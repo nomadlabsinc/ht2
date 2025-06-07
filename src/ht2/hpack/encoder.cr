@@ -29,7 +29,7 @@ module HT2
         io.to_slice
       end
 
-      def set_max_table_size(size : UInt32)
+      def max_table_size=(size : UInt32)
         @max_dynamic_table_size = size
         @header_table_size_update = size
         evict_entries

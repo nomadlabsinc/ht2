@@ -63,13 +63,6 @@ module HT2
 
     # Convert to Lucky-compatible request
     def to_lucky_request : HTTP::Request
-      # Parse the path to extract query params
-      uri = URI.parse(@path)
-
-      # Build the full URL
-      host = @authority || @headers["host"]? || "localhost"
-      full_url = "#{@scheme}://#{host}#{@path}"
-
       # Create HTTP::Request
       request = HTTP::Request.new(
         method: @method,

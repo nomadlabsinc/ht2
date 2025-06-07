@@ -14,16 +14,16 @@ key_file : String? = nil
 OptionParser.parse do |parser|
   parser.banner = "Usage: basic_server [options]"
 
-  parser.on("-h HOST", "--host=HOST", "Host to bind to (default: localhost)") do |h|
-    host = h
+  parser.on("-h HOST", "--host=HOST", "Host to bind to (default: localhost)") do |host_arg|
+    host = host_arg
   end
 
-  parser.on("-p PORT", "--port=PORT", "Port to bind to (default: 8443)") do |p|
-    port = p.to_i
+  parser.on("-p PORT", "--port=PORT", "Port to bind to (default: 8443)") do |port_arg|
+    port = port_arg.to_i
   end
 
-  parser.on("-c CERT", "--cert=CERT", "TLS certificate file") do |c|
-    cert_file = c
+  parser.on("-c CERT", "--cert=CERT", "TLS certificate file") do |cert_arg|
+    cert_file = cert_arg
   end
 
   parser.on("-k KEY", "--key=KEY", "TLS private key file") do |k|
@@ -113,7 +113,7 @@ handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Resp
           <p><strong>Request #:</strong> #{count}</p>
           <p><strong>Uptime:</strong> #{Time.utc - start_time}</p>
         </div>
-        
+
         <h2>Available Endpoints:</h2>
         <div class="endpoints">
           <div class="endpoint">
@@ -135,7 +135,7 @@ handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Resp
             <code>GET /stream/:id</code> - Stream-specific response
           </div>
         </div>
-        
+
         <h2>HTTP/2 Features:</h2>
         <ul>
           <li>Multiplexed streams</li>
@@ -236,8 +236,8 @@ server = HT2::Server.new(
   handler: handler,
   tls_context: tls_context,
   max_concurrent_streams: 100_u32,
-  initial_window_size: 65535_u32,
-  max_frame_size: 16384_u32
+  initial_window_size: 65_535_u32,
+  max_frame_size: 16_384_u32
 )
 
 # Handle shutdown gracefully

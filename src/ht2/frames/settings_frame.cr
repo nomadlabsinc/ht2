@@ -69,7 +69,7 @@ module HT2
               raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "INITIAL_WINDOW_SIZE too large")
             end
           when SettingsParameter::MAX_FRAME_SIZE
-            if value < 16384 || value > 16777215
+            if value < 16_384 || value > 16_777_215
               raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "MAX_FRAME_SIZE out of range")
             end
           end

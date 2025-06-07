@@ -88,14 +88,14 @@ module HT2
       connection.update_settings(settings)
 
       # Set up callbacks
-      connection.on_headers = ->(stream : Stream, headers : Array(Tuple(String, String)), end_stream : Bool) do
+      connection.on_headers = ->(stream : Stream, _headers : Array(Tuple(String, String)), end_stream : Bool) do
         if end_stream || stream.request_headers
           # We have complete headers, process request
           spawn handle_stream(connection, stream)
         end
       end
 
-      connection.on_data = ->(stream : Stream, data : Bytes, end_stream : Bool) do
+      connection.on_data = ->(stream : Stream, _data : Bytes, end_stream : Bool) do
         # Data is accumulated in the stream
         if end_stream && stream.request_headers
           # Request is complete

@@ -68,7 +68,7 @@ module HT2
         elsif first_byte & 0x20 != 0
           # Dynamic table size update
           new_size = decode_integer(io, first_byte, 5)
-          set_max_table_size(new_size)
+          self.max_table_size = new_size
         else
           # Literal header field without indexing
           never_index = (first_byte & 0x10) != 0
@@ -192,7 +192,7 @@ module HT2
         end
       end
 
-      private def set_max_table_size(size : UInt32)
+      def max_table_size=(size : UInt32)
         @max_dynamic_table_size = size
         evict_entries
       end

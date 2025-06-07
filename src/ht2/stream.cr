@@ -21,8 +21,8 @@ module HT2
     property request_headers : Array(Tuple(String, String))?
     property response_headers : Array(Tuple(String, String))?
     property data : IO::Memory
-    property end_stream_sent : Bool
-    property end_stream_received : Bool
+    property? end_stream_sent : Bool
+    property? end_stream_received : Bool
 
     def initialize(@id : UInt32, @connection : Connection, @state : StreamState = StreamState::IDLE)
       @window_size = connection.remote_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64

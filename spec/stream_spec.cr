@@ -47,8 +47,8 @@ describe HT2::Stream do
     stream.id.should eq(1)
     stream.state.should eq(HT2::StreamState::IDLE)
     stream.window_size.should eq(65535)
-    stream.end_stream_sent.should be_false
-    stream.end_stream_received.should be_false
+    stream.end_stream_sent?.should be_false
+    stream.end_stream_received?.should be_false
   end
 
   describe "state transitions" do
@@ -75,7 +75,7 @@ describe HT2::Stream do
 
       stream.send_headers(headers, end_stream: true)
       stream.state.should eq(HT2::StreamState::HALF_CLOSED_LOCAL)
-      stream.end_stream_sent.should be_true
+      stream.end_stream_sent?.should be_true
     end
 
     it "transitions from OPEN to HALF_CLOSED_LOCAL on data with END_STREAM" do
@@ -199,7 +199,7 @@ describe HT2::Stream do
       stream.receive_data(data2, end_stream: true)
 
       stream.data.to_s.should eq("Hello World!")
-      stream.end_stream_received.should be_true
+      stream.end_stream_received?.should be_true
     end
   end
 end

@@ -9,7 +9,7 @@ module HT2
     alias DataCallback = Proc(Stream, Bytes, Bool, Nil)
 
     getter socket : IO
-    getter is_server : Bool
+    getter? is_server : Bool
     getter streams : Hash(UInt32, Stream)
     getter local_settings : SettingsFrame::Settings
     getter remote_settings : SettingsFrame::Settings
@@ -17,8 +17,8 @@ module HT2
     getter hpack_decoder : HPACK::Decoder
     getter window_size : Int64
     getter last_stream_id : UInt32
-    getter goaway_sent : Bool
-    getter goaway_received : Bool
+    getter? goaway_sent : Bool
+    getter? goaway_received : Bool
 
     property on_headers : HeaderCallback?
     property on_data : DataCallback?
@@ -66,7 +66,7 @@ module HT2
       @last_stream_id = @is_server ? 0_u32 : 1_u32
       @goaway_sent = false
       @goaway_received = false
-      @read_buffer = Bytes.new(16384)
+      @read_buffer = Bytes.new(16_384)
       @frame_buffer = IO::Memory.new
       @continuation_stream_id = nil
       @continuation_headers = IO::Memory.new
@@ -113,7 +113,7 @@ module HT2
 
     def create_stream : Stream
       # Check concurrent stream limit
-      active_streams = @streams.count { |_, s| !s.closed? }
+      active_streams = @streams.count { |_, stream| !stream.closed? }
       max_streams = @local_settings[SettingsParameter::MAX_CONCURRENT_STREAMS]
 
       if active_streams >= max_streams
@@ -158,7 +158,7 @@ module HT2
 
       # Update HPACK table size if changed
       if table_size = settings[SettingsParameter::HEADER_TABLE_SIZE]?
-        @hpack_encoder.set_max_table_size(table_size)
+        @hpack_encoder.max_table_size = table_size
       end
 
       frame = SettingsFrame.new(settings: settings)
@@ -192,7 +192,7 @@ module HT2
           header_bytes = Bytes.new(Frame::HEADER_SIZE)
           @socket.read_fully(header_bytes)
 
-          length, type, flags, stream_id = Frame.parse_header(header_bytes)
+          length, _, _, stream_id = Frame.parse_header(header_bytes)
 
           # Validate frame size against negotiated MAX_FRAME_SIZE
           max_frame_size = @remote_settings[SettingsParameter::MAX_FRAME_SIZE]
@@ -257,7 +257,6 @@ module HT2
 
       # Send window update if needed
       if frame.data.size > 0
-        consumed = frame.data.size
         threshold = @local_settings[SettingsParameter::INITIAL_WINDOW_SIZE] / 2
 
         if @window_size < threshold
@@ -458,7 +457,7 @@ module HT2
         end
 
         # Check concurrent stream limit
-        active_streams = @streams.count { |_, s| !s.closed? }
+        active_streams = @streams.count { |_, stream| !stream.closed? }
         max_streams = @remote_settings[SettingsParameter::MAX_CONCURRENT_STREAMS]
 
         if active_streams >= max_streams
