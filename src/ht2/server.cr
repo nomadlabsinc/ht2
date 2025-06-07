@@ -85,7 +85,7 @@ module HT2
       settings[SettingsParameter::INITIAL_WINDOW_SIZE] = @initial_window_size
       settings[SettingsParameter::MAX_FRAME_SIZE] = @max_frame_size
       settings[SettingsParameter::MAX_HEADER_LIST_SIZE] = @max_header_list_size
-      connection.local_settings = settings
+      connection.update_settings(settings)
 
       # Set up callbacks
       connection.on_headers = ->(stream : Stream, headers : Array(Tuple(String, String)), end_stream : Bool) do
@@ -109,7 +109,7 @@ module HT2
       puts "Error handling client: #{ex.message}"
     ensure
       @connections.delete(connection) if connection
-      client_socket.close
+      client_socket.close if client_socket
     end
 
     private def handle_stream(connection : Connection, stream : Stream)
