@@ -23,6 +23,39 @@ module HT2
     property on_headers : HeaderCallback?
     property on_data : DataCallback?
 
+    # Test-only accessors
+    {% if env("CRYSTAL_SPEC") %}
+      property continuation_headers : IO::Memory
+      property continuation_stream_id : UInt32?
+      property total_streams_count : UInt32
+      property ping_handlers : Hash(Bytes, Channel(Nil))
+      property ping_rate_limiter : Security::RateLimiter
+
+      def test_handle_continuation_frame(frame : ContinuationFrame) : Nil
+        handle_continuation_frame(frame)
+      end
+
+      def test_handle_window_update_frame(frame : WindowUpdateFrame) : Nil
+        handle_window_update_frame(frame)
+      end
+
+      def test_get_or_create_stream(stream_id : UInt32) : Stream
+        get_or_create_stream(stream_id)
+      end
+
+      def test_handle_ping_frame(frame : PingFrame) : Nil
+        handle_ping_frame(frame)
+      end
+
+      def test_handle_rst_stream_frame(frame : RstStreamFrame) : Nil
+        handle_rst_stream_frame(frame)
+      end
+
+      def test_handle_priority_frame(frame : PriorityFrame) : Nil
+        handle_priority_frame(frame)
+      end
+    {% end %}
+
     def initialize(@socket : IO, @is_server : Bool = true)
       @streams = Hash(UInt32, Stream).new
       @local_settings = default_settings
@@ -132,6 +165,10 @@ module HT2
       send_frame(frame)
 
       @settings_ack_channel
+    end
+
+    def consume_window(size : Int32) : Nil
+      @window_size -= size
     end
 
     private def read_client_preface
