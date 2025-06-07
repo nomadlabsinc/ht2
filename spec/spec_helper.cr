@@ -28,28 +28,28 @@ class HT2::Connection
   property ping_rate_limiter : HT2::Security::RateLimiter
   property local_settings : HT2::SettingsFrame::Settings
   property remote_settings : HT2::SettingsFrame::Settings
-  
+
   # Make private methods public for testing
   def test_handle_continuation_frame(frame : ContinuationFrame)
     handle_continuation_frame(frame)
   end
-  
+
   def test_handle_ping_frame(frame : PingFrame)
     handle_ping_frame(frame)
   end
-  
+
   def test_handle_window_update_frame(frame : WindowUpdateFrame)
     handle_window_update_frame(frame)
   end
-  
+
   def test_handle_priority_frame(frame : PriorityFrame)
     handle_priority_frame(frame)
   end
-  
+
   def test_handle_rst_stream_frame(frame : RstStreamFrame)
     handle_rst_stream_frame(frame)
   end
-  
+
   def test_get_or_create_stream(stream_id : UInt32) : Stream
     get_or_create_stream(stream_id)
   end

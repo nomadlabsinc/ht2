@@ -206,9 +206,16 @@ describe HT2::WindowUpdateFrame do
     parsed.window_size_increment.should eq(65535)
   end
 
-  it "rejects zero increment" do
-    expect_raises(HT2::ProtocolError) do
-      HT2::WindowUpdateFrame.new(1_u32, 0_u32)
+  it "rejects zero increment in parse" do
+    # Zero increment is rejected during parsing, not construction
+    bytes = Bytes.new(4)
+    bytes[0] = 0x00_u8
+    bytes[1] = 0x00_u8
+    bytes[2] = 0x00_u8
+    bytes[3] = 0x00_u8
+
+    expect_raises(HT2::StreamError, /increment of 0/) do
+      HT2::WindowUpdateFrame.parse_payload(1_u32, HT2::FrameFlags::None, bytes)
     end
   end
 

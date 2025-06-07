@@ -16,7 +16,7 @@ module HT2
     INADEQUATE_SECURITY = 0x0c
     HTTP_1_1_REQUIRED   = 0x0d
   end
-  
+
   class Error < Exception
   end
 

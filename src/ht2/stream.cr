@@ -65,7 +65,7 @@ module HT2
       @connection.send_frame(frame)
 
       @window_size -= data.size
-      @connection.window_size -= data.size
+      @connection.consume_window(data.size)
 
       @end_stream_sent = true if end_stream
       update_state_after_data_sent(end_stream)
@@ -102,10 +102,10 @@ module HT2
       if increment == 0
         raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Window increment cannot be zero")
       end
-      
+
       # Use checked arithmetic
       new_window = Security.checked_add(@window_size, increment.to_i64)
-      
+
       if new_window > Security::MAX_WINDOW_SIZE
         raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR, "Window size overflow")
       end
@@ -204,7 +204,7 @@ module HT2
         @state = StreamState::CLOSED
       end
     end
-    
+
     def closed? : Bool
       @state == StreamState::CLOSED
     end

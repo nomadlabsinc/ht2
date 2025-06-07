@@ -18,8 +18,7 @@ module HT2
 
         # Send table size update if needed
         if update = @header_table_size_update
-          encode_integer(io, update, 5)
-          io.write_byte(0x20_u8) # Dynamic table size update pattern
+          encode_integer(io, update, 5, 0x20_u8) # Dynamic table size update pattern
           @header_table_size_update = nil
         end
 
@@ -43,17 +42,15 @@ module HT2
 
         if index
           # Indexed header field
-          encode_integer(io, index, 7)
-          io.write_byte(0x80_u8) # Indexed pattern
+          encode_integer(io, index, 7, 0x80_u8) # Indexed pattern
         elsif name_index
           # Literal header field with name reference
-          encode_integer(io, name_index, 6)
-          io.write_byte(0x40_u8) # Literal with incremental indexing
+          encode_integer(io, name_index, 6, 0x40_u8) # Literal with incremental indexing
           encode_string(io, value)
           add_to_dynamic_table(name, value)
         else
           # Literal header field with literal name
-          io.write_byte(0x40_u8) # Literal with incremental indexing
+          io.write_byte(0x40_u8) # Literal with incremental indexing, new name (index = 0)
           encode_string(io, name)
           encode_string(io, value)
           add_to_dynamic_table(name, value)
@@ -125,15 +122,15 @@ module HT2
         (name.bytesize + value.bytesize + 32).to_u32
       end
 
-      private def encode_integer(io : IO, value : UInt32, prefix_bits : Int32)
+      private def encode_integer(io : IO, value : UInt32, prefix_bits : Int32, pattern : UInt8 = 0_u8)
         max_prefix = (1 << prefix_bits) - 1
 
         if value < max_prefix
           # Fits in prefix
-          io.write_byte(value.to_u8)
+          io.write_byte((pattern | value).to_u8)
         else
           # Doesn't fit in prefix
-          io.write_byte(max_prefix.to_u8)
+          io.write_byte((pattern | max_prefix).to_u8)
           value -= max_prefix
 
           while value >= 128
@@ -148,8 +145,7 @@ module HT2
       private def encode_string(io : IO, value : String)
         # Always use Huffman encoding for better compression
         encoded = Huffman.encode(value)
-        encode_integer(io, encoded.size.to_u32, 7)
-        io.write_byte(0x80_u8) # Huffman flag
+        encode_integer(io, encoded.size.to_u32, 7, 0x80_u8) # Huffman flag
         io.write(encoded)
       end
     end

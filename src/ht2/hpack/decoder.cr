@@ -55,14 +55,14 @@ module HT2
           # Check decompressed size
           header_size = name.bytesize + value.bytesize
           @total_headers_size += header_size.to_u32
-          
+
           if @total_headers_size > @max_headers_size
             raise DecompressionError.new("Headers size exceeds maximum: #{@total_headers_size} > #{@max_headers_size}")
           end
-          
+
           # Validate header name
           Security.validate_header_name(name)
-          
+
           headers << {name, value}
           add_to_dynamic_table(name, value)
         elsif first_byte & 0x20 != 0
@@ -87,14 +87,14 @@ module HT2
           # Check decompressed size
           header_size = name.bytesize + value.bytesize
           @total_headers_size += header_size.to_u32
-          
+
           if @total_headers_size > @max_headers_size
             raise DecompressionError.new("Headers size exceeds maximum: #{@total_headers_size} > #{@max_headers_size}")
           end
-          
+
           # Validate header name
           Security.validate_header_name(name)
-          
+
           headers << {name, value}
         end
       end
@@ -130,14 +130,14 @@ module HT2
           if shift > 28
             raise DecompressionError.new("Integer too large")
           end
-          
+
           add_value = (byte & 0x7F).to_u32 << shift
-          
+
           # Check if addition would overflow
           if value > UInt32::MAX - add_value
             raise DecompressionError.new("Integer overflow")
           end
-          
+
           value += add_value
           shift += 7
 
@@ -178,7 +178,7 @@ module HT2
             @dynamic_table_size -= calculate_entry_size(evicted[0], evicted[1])
           end
         end
-        
+
         # Evict entries if needed
         while @dynamic_table_size + entry_size > @max_dynamic_table_size && !@dynamic_table.empty?
           evicted = @dynamic_table.pop
