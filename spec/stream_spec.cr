@@ -18,7 +18,20 @@ class MockConnection < HT2::Connection
     @goaway_sent = false
     @goaway_received = false
     @sent_frames = Array(HT2::Frame).new
+    @read_buffer = Bytes.new(16384)
+    @frame_buffer = IO::Memory.new
+    @continuation_stream_id = nil
+    @continuation_headers = IO::Memory.new
+    @continuation_end_stream = false
+    @ping_handlers = Hash(Bytes, Channel(Nil)).new
+    @settings_ack_channel = Channel(Nil).new
+    @closed = false
     @write_mutex = Mutex.new
+    @total_streams_count = 0_u32
+    @settings_rate_limiter = HT2::Security::RateLimiter.new(HT2::Security::MAX_SETTINGS_PER_SECOND)
+    @ping_rate_limiter = HT2::Security::RateLimiter.new(HT2::Security::MAX_PING_PER_SECOND)
+    @rst_rate_limiter = HT2::Security::RateLimiter.new(HT2::Security::MAX_RST_PER_SECOND)
+    @priority_rate_limiter = HT2::Security::RateLimiter.new(HT2::Security::MAX_PRIORITY_PER_SECOND)
   end
 
   def send_frame(frame : HT2::Frame) : Nil

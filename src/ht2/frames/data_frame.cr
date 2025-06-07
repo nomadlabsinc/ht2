@@ -1,3 +1,5 @@
+require "../security"
+
 module HT2
   class DataFrame < Frame
     getter data : Bytes
@@ -12,6 +14,11 @@ module HT2
 
       if @padding > 0
         @flags = @flags | FrameFlags::PADDED
+
+        # Limit padding to prevent oracle attacks
+        if @padding > Security::MAX_PADDING_LENGTH
+          raise ProtocolError.new("Padding length #{@padding} exceeds maximum #{Security::MAX_PADDING_LENGTH}")
+        end
       end
     end
 
@@ -25,7 +32,7 @@ module HT2
         total_size = 1 + @data.size + @padding
         bytes = Bytes.new(total_size)
         bytes[0] = @padding
-        @data.copy_to(bytes + 1, @data.size)
+        @data.copy_to((bytes + 1).to_unsafe, @data.size)
         # Padding bytes are already zero
         bytes
       else
@@ -43,14 +50,21 @@ module HT2
 
       if flags.padded?
         if payload.empty?
-          raise ConnectionError.new(ErrorCode::FRAME_SIZE_ERROR, "PADDED flag set but no padding length")
+          # Use consistent error to prevent oracle attacks
+          raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Invalid frame format")
         end
 
         padding = payload[0]
         data_offset = 1
 
         if padding >= payload.size - 1
-          raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Padding length >= frame payload size")
+          # Use consistent error to prevent oracle attacks
+          raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Invalid frame format")
+        end
+
+        # Limit padding to prevent oracle attacks
+        if padding > Security::MAX_PADDING_LENGTH
+          raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Invalid frame format")
         end
       end
 

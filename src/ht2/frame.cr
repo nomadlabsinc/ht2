@@ -45,7 +45,7 @@ module HT2
       bytes[8] = @stream_id.to_u8
 
       # Copy payload
-      payload_bytes.copy_to(bytes + HEADER_SIZE, payload_bytes.size)
+      payload_bytes.copy_to((bytes + HEADER_SIZE).to_unsafe, payload_bytes.size)
 
       bytes
     end

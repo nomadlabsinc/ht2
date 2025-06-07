@@ -1,3 +1,5 @@
+require "./security"
+
 module HT2
   enum StreamState
     IDLE
@@ -11,9 +13,9 @@ module HT2
 
   class Stream
     getter id : UInt32
-    getter state : StreamState
+    property state : StreamState
     getter connection : Connection
-    getter window_size : Int64
+    property window_size : Int64
     getter priority : PriorityData?
 
     property request_headers : Array(Tuple(String, String))?
@@ -96,8 +98,15 @@ module HT2
     end
 
     def receive_window_update(increment : UInt32) : Nil
-      new_window = @window_size + increment
-      if new_window > 0x7FFFFFFF
+      # Check for zero increment
+      if increment == 0
+        raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Window increment cannot be zero")
+      end
+      
+      # Use checked arithmetic
+      new_window = Security.checked_add(@window_size, increment.to_i64)
+      
+      if new_window > Security::MAX_WINDOW_SIZE
         raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR, "Window size overflow")
       end
 
@@ -194,6 +203,10 @@ module HT2
       when StreamState::HALF_CLOSED_LOCAL
         @state = StreamState::CLOSED
       end
+    end
+    
+    def closed? : Bool
+      @state == StreamState::CLOSED
     end
   end
 end

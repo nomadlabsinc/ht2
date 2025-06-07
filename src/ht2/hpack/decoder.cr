@@ -1,3 +1,5 @@
+require "../security"
+
 module HT2
   module HPACK
     class Decoder
@@ -5,16 +7,19 @@ module HT2
 
       getter dynamic_table : Array(Header)
       getter dynamic_table_size : UInt32
-      getter max_dynamic_table_size : UInt32
+      property max_dynamic_table_size : UInt32
 
       def initialize(@max_dynamic_table_size : UInt32 = DEFAULT_HEADER_TABLE_SIZE)
         @dynamic_table = Array(Header).new
         @dynamic_table_size = 0_u32
+        @max_headers_size = Security::MAX_HEADER_LIST_SIZE
+        @total_headers_size = 0_u32
       end
 
       def decode(data : Bytes) : Array(Header)
         headers = Array(Header).new
         io = IO::Memory.new(data)
+        @total_headers_size = 0_u32
 
         while io.pos < data.size
           decode_header(io, headers)
@@ -47,6 +52,17 @@ module HT2
             value = decode_string(io)
           end
 
+          # Check decompressed size
+          header_size = name.bytesize + value.bytesize
+          @total_headers_size += header_size.to_u32
+          
+          if @total_headers_size > @max_headers_size
+            raise DecompressionError.new("Headers size exceeds maximum: #{@total_headers_size} > #{@max_headers_size}")
+          end
+          
+          # Validate header name
+          Security.validate_header_name(name)
+          
           headers << {name, value}
           add_to_dynamic_table(name, value)
         elsif first_byte & 0x20 != 0
@@ -68,6 +84,17 @@ module HT2
             value = decode_string(io)
           end
 
+          # Check decompressed size
+          header_size = name.bytesize + value.bytesize
+          @total_headers_size += header_size.to_u32
+          
+          if @total_headers_size > @max_headers_size
+            raise DecompressionError.new("Headers size exceeds maximum: #{@total_headers_size} > #{@max_headers_size}")
+          end
+          
+          # Validate header name
+          Security.validate_header_name(name)
+          
           headers << {name, value}
         end
       end
@@ -99,12 +126,20 @@ module HT2
         shift = 0
         loop do
           byte = io.read_byte || raise DecompressionError.new("Incomplete integer")
-          value += ((byte & 0x7F).to_u32 << shift)
-          shift += 7
-
+          # Check for overflow before adding
           if shift > 28
             raise DecompressionError.new("Integer too large")
           end
+          
+          add_value = (byte & 0x7F).to_u32 << shift
+          
+          # Check if addition would overflow
+          if value > UInt32::MAX - add_value
+            raise DecompressionError.new("Integer overflow")
+          end
+          
+          value += add_value
+          shift += 7
 
           break if byte & 0x80 == 0
         end
@@ -135,6 +170,15 @@ module HT2
         entry = {name, value}
         entry_size = calculate_entry_size(name, value)
 
+        # Check dynamic table entry limit
+        if @dynamic_table.size >= Security::MAX_DYNAMIC_TABLE_ENTRIES
+          # Remove oldest entries
+          while @dynamic_table.size >= Security::MAX_DYNAMIC_TABLE_ENTRIES
+            evicted = @dynamic_table.pop
+            @dynamic_table_size -= calculate_entry_size(evicted[0], evicted[1])
+          end
+        end
+        
         # Evict entries if needed
         while @dynamic_table_size + entry_size > @max_dynamic_table_size && !@dynamic_table.empty?
           evicted = @dynamic_table.pop

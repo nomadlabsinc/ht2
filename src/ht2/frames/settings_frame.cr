@@ -18,14 +18,14 @@ module HT2
 
       @settings.each do |param, value|
         # Parameter ID (16 bits)
-        bytes[offset] = (param.value >> 8).to_u8
-        bytes[offset + 1] = param.value.to_u8
+        bytes[offset] = ((param.value >> 8) & 0xFF).to_u8
+        bytes[offset + 1] = (param.value & 0xFF).to_u8
 
         # Value (32 bits)
-        bytes[offset + 2] = (value >> 24).to_u8
-        bytes[offset + 3] = (value >> 16).to_u8
-        bytes[offset + 4] = (value >> 8).to_u8
-        bytes[offset + 5] = value.to_u8
+        bytes[offset + 2] = ((value >> 24) & 0xFF).to_u8
+        bytes[offset + 3] = ((value >> 16) & 0xFF).to_u8
+        bytes[offset + 4] = ((value >> 8) & 0xFF).to_u8
+        bytes[offset + 5] = (value & 0xFF).to_u8
 
         offset += 6
       end

@@ -6,18 +6,18 @@ describe HT2::Frame do
       # Create a test frame header
       bytes = Bytes.new(9)
       # Length: 16 (0x000010)
-      bytes[0] = 0x00
-      bytes[1] = 0x00
-      bytes[2] = 0x10
+      bytes[0] = 0x00_u8
+      bytes[1] = 0x00_u8
+      bytes[2] = 0x10_u8
       # Type: DATA (0x00)
-      bytes[3] = 0x00
+      bytes[3] = 0x00_u8
       # Flags: END_STREAM (0x01)
-      bytes[4] = 0x01
+      bytes[4] = 0x01_u8
       # Stream ID: 5 (0x00000005)
-      bytes[5] = 0x00
-      bytes[6] = 0x00
-      bytes[7] = 0x00
-      bytes[8] = 0x05
+      bytes[5] = 0x00_u8
+      bytes[6] = 0x00_u8
+      bytes[7] = 0x00_u8
+      bytes[8] = 0x05_u8
 
       length, type, flags, stream_id = HT2::Frame.parse_header(bytes)
 
@@ -29,16 +29,16 @@ describe HT2::Frame do
 
     it "handles reserved bit in stream ID" do
       bytes = Bytes.new(9)
-      bytes[0] = 0x00
-      bytes[1] = 0x00
-      bytes[2] = 0x00
-      bytes[3] = 0x00
-      bytes[4] = 0x00
+      bytes[0] = 0x00_u8
+      bytes[1] = 0x00_u8
+      bytes[2] = 0x00_u8
+      bytes[3] = 0x00_u8
+      bytes[4] = 0x00_u8
       # Set reserved bit (0x80) and stream ID
-      bytes[5] = 0x80 | 0x00
-      bytes[6] = 0x00
-      bytes[7] = 0x00
-      bytes[8] = 0x05
+      bytes[5] = (0x80 | 0x00).to_u8
+      bytes[6] = 0x00_u8
+      bytes[7] = 0x00_u8
+      bytes[8] = 0x05_u8
 
       _, _, _, stream_id = HT2::Frame.parse_header(bytes)
 

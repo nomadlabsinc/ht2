@@ -1,5 +1,6 @@
 require "./frames"
 require "./hpack"
+require "./security"
 require "./stream"
 
 module HT2
@@ -36,10 +37,18 @@ module HT2
       @frame_buffer = IO::Memory.new
       @continuation_stream_id = nil
       @continuation_headers = IO::Memory.new
+      @continuation_end_stream = false
       @ping_handlers = Hash(Bytes, Channel(Nil)).new
       @settings_ack_channel = Channel(Nil).new
       @closed = false
       @write_mutex = Mutex.new
+      @total_streams_count = 0_u32
+
+      # Rate limiters for flood protection
+      @settings_rate_limiter = Security::RateLimiter.new(Security::MAX_SETTINGS_PER_SECOND)
+      @ping_rate_limiter = Security::RateLimiter.new(Security::MAX_PING_PER_SECOND)
+      @rst_rate_limiter = Security::RateLimiter.new(Security::MAX_RST_PER_SECOND)
+      @priority_rate_limiter = Security::RateLimiter.new(Security::MAX_PRIORITY_PER_SECOND)
     end
 
     def start : Nil
@@ -70,9 +79,18 @@ module HT2
     end
 
     def create_stream : Stream
+      # Check concurrent stream limit
+      active_streams = @streams.count { |_, s| !s.closed? }
+      max_streams = @local_settings[SettingsParameter::MAX_CONCURRENT_STREAMS]
+
+      if active_streams >= max_streams
+        raise ConnectionError.new(ErrorCode::REFUSED_STREAM, "Maximum concurrent streams (#{max_streams}) reached")
+      end
+
       stream_id = next_stream_id
       stream = Stream.new(stream_id, self)
       @streams[stream_id] = stream
+      @total_streams_count += 1
       stream
     end
 
@@ -139,6 +157,10 @@ module HT2
 
           length, type, flags, stream_id = Frame.parse_header(header_bytes)
 
+          # Validate frame size against negotiated MAX_FRAME_SIZE
+          max_frame_size = @remote_settings[SettingsParameter::MAX_FRAME_SIZE]
+          Security.validate_frame_size(length, max_frame_size)
+
           # Read frame payload
           payload = Bytes.new(length)
           @socket.read_fully(payload) if length > 0
@@ -146,7 +168,7 @@ module HT2
           # Combine header and payload
           full_frame = Bytes.new(Frame::HEADER_SIZE + length)
           header_bytes.copy_to(full_frame)
-          payload.copy_to(full_frame + Frame::HEADER_SIZE, length) if length > 0
+          payload.copy_to((full_frame + Frame::HEADER_SIZE).to_unsafe, length) if length > 0
 
           # Parse and handle frame
           frame = Frame.parse(full_frame)
@@ -237,6 +259,7 @@ module HT2
         # Expecting CONTINUATION frames
         @continuation_stream_id = frame.stream_id
         @continuation_headers.write(frame.header_block)
+        @continuation_end_stream = frame.flags.end_stream?
       end
     end
 
@@ -245,14 +268,19 @@ module HT2
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "CONTINUATION stream mismatch")
       end
 
+      # Check continuation size limit
+      if @continuation_headers.size + frame.header_block.size > Security::MAX_CONTINUATION_SIZE
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "CONTINUATION frames exceed size limit")
+      end
+
       @continuation_headers.write(frame.header_block)
 
       if frame.flags.end_headers?
         stream = get_stream(frame.stream_id)
         headers = @hpack_decoder.decode(@continuation_headers.to_slice)
 
-        # Check if original frame had END_STREAM
-        end_stream = false # TODO: Track from original HEADERS frame
+        # Use tracked END_STREAM flag from original HEADERS frame
+        end_stream = @continuation_end_stream
 
         stream.receive_headers(headers, end_stream)
 
@@ -266,11 +294,19 @@ module HT2
     end
 
     private def handle_priority_frame(frame : PriorityFrame)
+      unless @priority_rate_limiter.check
+        raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "PRIORITY flood detected")
+      end
+
       stream = get_or_create_stream(frame.stream_id)
       stream.receive_priority(frame.priority)
     end
 
     private def handle_rst_stream_frame(frame : RstStreamFrame)
+      unless @rst_rate_limiter.check
+        raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "RST_STREAM flood detected")
+      end
+
       stream = @streams[frame.stream_id]?
       return unless stream
 
@@ -283,6 +319,10 @@ module HT2
         # Settings acknowledged
         @settings_ack_channel.send(nil)
       else
+        # Rate limit SETTINGS frames
+        unless @settings_rate_limiter.check
+          raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "SETTINGS flood detected")
+        end
         # Apply remote settings
         frame.settings.each do |param, value|
           @remote_settings[param] = value
@@ -318,6 +358,17 @@ module HT2
           channel.send(nil)
         end
       else
+        # Rate limit PING frames
+        unless @ping_rate_limiter.check
+          raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "PING flood detected")
+        end
+
+        # Limit ping queue size
+        if @ping_handlers.size >= Security::MAX_PING_QUEUE_SIZE
+          # Clear oldest ping handler
+          @ping_handlers.shift
+        end
+
         # Send ping ACK
         send_frame(PingFrame.new(frame.opaque_data, FrameFlags::ACK))
       end
@@ -337,11 +388,20 @@ module HT2
 
     private def handle_window_update_frame(frame : WindowUpdateFrame)
       if frame.stream_id == 0
-        # Connection window update
-        new_window = @window_size + frame.window_size_increment
-        if new_window > 0x7FFFFFFF
+        # Connection window update with checked arithmetic
+        increment = frame.window_size_increment.to_i64
+
+        # Check for zero increment
+        if increment == 0
+          raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Window increment cannot be zero")
+        end
+
+        new_window = Security.checked_add(@window_size, increment)
+
+        if new_window > Security::MAX_WINDOW_SIZE
           raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "Connection window overflow")
         end
+
         @window_size = new_window
       else
         # Stream window update
@@ -360,7 +420,21 @@ module HT2
           raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Stream ID not increasing")
         end
 
+        # Check concurrent stream limit
+        active_streams = @streams.count { |_, s| !s.closed? }
+        max_streams = @remote_settings[SettingsParameter::MAX_CONCURRENT_STREAMS]
+
+        if active_streams >= max_streams
+          raise ConnectionError.new(ErrorCode::REFUSED_STREAM, "Maximum concurrent streams (#{max_streams}) reached")
+        end
+
+        # Check total stream limit
+        if @total_streams_count >= Security::MAX_TOTAL_STREAMS
+          raise ConnectionError.new(ErrorCode::REFUSED_STREAM, "Total stream limit reached")
+        end
+
         @last_stream_id = stream_id
+        @total_streams_count += 1
         Stream.new(stream_id, self, StreamState::IDLE)
       end
     end

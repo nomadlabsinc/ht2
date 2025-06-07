@@ -29,7 +29,7 @@ module HT2
       bytes[7] = error_value.to_u8
 
       # Debug Data
-      @debug_data.copy_to(bytes + 8, @debug_data.size)
+      @debug_data.copy_to((bytes + 8).to_unsafe, @debug_data.size)
 
       bytes
     end

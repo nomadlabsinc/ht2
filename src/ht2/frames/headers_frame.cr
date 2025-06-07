@@ -52,7 +52,7 @@ module HT2
       end
 
       # Header block
-      @header_block.copy_to(bytes + offset, @header_block.size)
+      @header_block.copy_to((bytes + offset).to_unsafe, @header_block.size)
 
       bytes
     end

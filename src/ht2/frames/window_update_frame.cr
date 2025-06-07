@@ -5,10 +5,6 @@ module HT2
     def initialize(@stream_id : UInt32, @window_size_increment : UInt32)
       super(@stream_id, FrameFlags::None)
 
-      if @window_size_increment == 0
-        raise ProtocolError.new("WINDOW_UPDATE increment cannot be 0")
-      end
-
       if @window_size_increment > 0x7FFFFFFF
         raise ProtocolError.new("WINDOW_UPDATE increment too large")
       end
@@ -22,10 +18,10 @@ module HT2
       bytes = Bytes.new(4)
 
       # Reserved bit (1 bit) + Window Size Increment (31 bits)
-      bytes[0] = (@window_size_increment >> 24).to_u8 & 0x7F # Clear reserved bit
-      bytes[1] = (@window_size_increment >> 16).to_u8
-      bytes[2] = (@window_size_increment >> 8).to_u8
-      bytes[3] = @window_size_increment.to_u8
+      bytes[0] = ((@window_size_increment >> 24) & 0x7F).to_u8 # Clear reserved bit
+      bytes[1] = ((@window_size_increment >> 16) & 0xFF).to_u8
+      bytes[2] = ((@window_size_increment >> 8) & 0xFF).to_u8
+      bytes[3] = (@window_size_increment & 0xFF).to_u8
 
       bytes
     end
