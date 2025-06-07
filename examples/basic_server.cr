@@ -1,5 +1,6 @@
 require "../src/ht2"
 require "option_parser"
+require "json"
 
 # Basic HTTP/2 server example demonstrating core functionality
 
@@ -39,30 +40,41 @@ end
 def generate_dev_certificate : OpenSSL::SSL::Context::Server
   puts "🔐 Generating self-signed certificate for development..."
 
-  key = OpenSSL::PKey::RSA.new(2048)
+  # Generate temporary file paths
+  temp_key_file = "#{Dir.tempdir}/ht2_dev_key_#{Process.pid}.pem"
+  temp_cert_file = "#{Dir.tempdir}/ht2_dev_cert_#{Process.pid}.pem"
 
-  cert = OpenSSL::X509::Certificate.new
-  cert.version = 2
-  cert.serial = 1
-  cert.subject = OpenSSL::X509::Name.new([["CN", "localhost"]])
-  cert.issuer = cert.subject
-  cert.public_key = key.public_key
-  cert.not_before = Time.utc
-  cert.not_after = Time.utc + 365.days
+  # Generate RSA key using OpenSSL command line
+  unless system("openssl genrsa -out #{temp_key_file} 2048 2>/dev/null")
+    raise "Failed to generate RSA key"
+  end
 
-  cert.sign(key, OpenSSL::Digest.new("SHA256"))
+  # Generate self-signed certificate
+  unless system("openssl req -new -x509 -key #{temp_key_file} -out #{temp_cert_file} -days 365 -subj '/CN=localhost' 2>/dev/null")
+    raise "Failed to generate certificate"
+  end
 
   context = OpenSSL::SSL::Context::Server.new
-  context.certificate_chain = cert.to_pem
-  context.private_key = key.to_pem
+  context.certificate_chain = temp_cert_file
+  context.private_key = temp_key_file
   context.alpn_protocol = "h2"
+
+  # Clean up temp files on exit
+  at_exit do
+    File.delete(temp_key_file) if File.exists?(temp_key_file)
+    File.delete(temp_cert_file) if File.exists?(temp_cert_file)
+  end
 
   context
 end
 
 # Create TLS context
-tls_context = if cert_file && key_file
-                HT2::Server.create_tls_context(cert_file, key_file)
+tls_context = if cert_path = cert_file
+                if key_path = key_file
+                  HT2::Server.create_tls_context(cert_path, key_path)
+                else
+                  generate_dev_certificate
+                end
               else
                 generate_dev_certificate
               end
@@ -171,9 +183,9 @@ handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Resp
     response.status = 200
     response.headers["content-type"] = "application/json"
 
-    headers_hash = Hash(String, String).new
-    request.headers.each do |name, value|
-      headers_hash[name] = value
+    headers_hash = Hash(String, String | Array(String)).new
+    request.headers.each do |name, values|
+      headers_hash[name] = values.size == 1 ? values.first : values
     end
 
     response.write({

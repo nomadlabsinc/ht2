@@ -89,31 +89,33 @@ Kemal.config.serve_static = false # Handle static files via HTTP/2
 
 # Generate self-signed certificate for development
 def generate_dev_certificate : OpenSSL::SSL::Context::Server
-  key : OpenSSL::PKey::RSA = OpenSSL::PKey::RSA.new(2048)
+  # Generate temporary file paths
+  temp_key_file = "#{Dir.tempdir}/kemal_ht2_key_#{Process.pid}.pem"
+  temp_cert_file = "#{Dir.tempdir}/kemal_ht2_cert_#{Process.pid}.pem"
 
-  cert : OpenSSL::X509::Certificate = OpenSSL::X509::Certificate.new
-  cert.version = 2
-  cert.serial = 1
-  cert.subject = OpenSSL::X509::Name.new([["CN", "localhost"]])
-  cert.issuer = cert.subject
-  cert.public_key = key.public_key
-  cert.not_before = Time.utc
-  cert.not_after = Time.utc + 365.days
+  # Generate RSA key using OpenSSL command line
+  unless system("openssl genrsa -out #{temp_key_file} 2048 2>/dev/null")
+    raise "Failed to generate RSA key"
+  end
 
-  # Add extensions for localhost
-  extension_factory = OpenSSL::X509::ExtensionFactory.new
-  extension_factory.subject_certificate = cert
-  extension_factory.issuer_certificate = cert
-
-  cert.add_extension(extension_factory.create_extension("subjectAltName", "DNS:localhost,IP:127.0.0.1", false))
-  cert.add_extension(extension_factory.create_extension("keyUsage", "digitalSignature,keyEncipherment", true))
-
-  cert.sign(key, OpenSSL::Digest.new("SHA256"))
+  # Generate self-signed certificate with SAN extensions
+  unless system("openssl req -new -x509 -key #{temp_key_file} -out #{temp_cert_file} -days 365 -subj '/CN=localhost' -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' -addext 'keyUsage=digitalSignature,keyEncipherment' 2>/dev/null")
+    # Fallback for older OpenSSL versions without -addext
+    unless system("openssl req -new -x509 -key #{temp_key_file} -out #{temp_cert_file} -days 365 -subj '/CN=localhost' 2>/dev/null")
+      raise "Failed to generate certificate"
+    end
+  end
 
   context : OpenSSL::SSL::Context::Server = OpenSSL::SSL::Context::Server.new
-  context.certificate_chain = cert.to_pem
-  context.private_key = key.to_pem
+  context.certificate_chain = temp_cert_file
+  context.private_key = temp_key_file
   context.alpn_protocol = "h2"
+
+  # Clean up temp files on exit
+  at_exit do
+    File.delete(temp_key_file) if File.exists?(temp_key_file)
+    File.delete(temp_cert_file) if File.exists?(temp_cert_file)
+  end
 
   context
 end
