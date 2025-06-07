@@ -1,0 +1,219 @@
+require "../src/ht2"
+
+# HTTP/2 Adapter for Lucky Framework
+#
+# This adapter allows Lucky applications to run over HTTP/2 by bridging
+# between HT2's request/response objects and Lucky's HTTP context.
+
+module Lucky
+  module Server
+    class HTTP2Adapter
+      property host : String
+      property port : Int32
+      property handler : HTTP::Handler
+      property tls_cert_file : String
+      property tls_key_file : String
+
+      @server : HT2::Server?
+
+      def initialize(@host : String, @port : Int32, @handler : HTTP::Handler,
+                     @tls_cert_file : String, @tls_key_file : String)
+      end
+
+      def listen : Nil
+        # Create TLS context for HTTP/2
+        tls_context : OpenSSL::SSL::Context::Server = create_tls_context
+
+        # Create HTTP/2 handler that bridges to Lucky
+        http2_handler : HT2::Server::Handler = create_http2_handler
+
+        # Create HTTP/2 server with Lucky's settings
+        @server = server = HT2::Server.new(
+          host: @host,
+          port: @port,
+          handler: http2_handler,
+          tls_context: tls_context,
+          max_concurrent_streams: settings.max_concurrent_streams,
+          initial_window_size: settings.initial_window_size,
+          max_frame_size: settings.max_frame_size,
+          max_header_list_size: settings.max_header_list_size
+        )
+
+        puts "🍀 Lucky is running over HTTP/2!"
+        puts "🔒 URL: https://#{@host}:#{@port}"
+        puts ""
+
+        server.listen
+      end
+
+      def close : Nil
+        @server.try(&.close)
+      end
+
+      private def create_tls_context : OpenSSL::SSL::Context::Server
+        context = HT2::Server.create_tls_context(@tls_cert_file, @tls_key_file)
+
+        # Additional Lucky-specific TLS configuration
+        context.ciphers = Lucky::Server.settings.ssl_ciphers if Lucky::Server.settings.ssl_ciphers?
+
+        context
+      end
+
+      private def create_http2_handler : HT2::Server::Handler
+        ->(request : HT2::Request, response : HT2::Response) do
+          begin
+            # Convert HTTP/2 request to Lucky-compatible HTTP request
+            http_request : HTTP::Request = build_http_request(request)
+
+            # Create response IO
+            response_io : IO::Memory = IO::Memory.new
+            http_response : HTTP::Server::Response = HTTP::Server::Response.new(response_io)
+
+            # Create context
+            context : HTTP::Server::Context = HTTP::Server::Context.new(http_request, http_response)
+
+            # Add Lucky-specific context data
+            context.request.headers["X-HTTP-Version"] = "HTTP/2"
+
+            # Process through Lucky's handler chain
+            @handler.call(context)
+
+            # Convert response back to HTTP/2
+            send_http2_response(response, http_response, response_io)
+          rescue ex : Exception
+            # Handle errors gracefully
+            handle_error(response, ex)
+          end
+        end
+      end
+
+      private def build_http_request(request : HT2::Request) : HTTP::Request
+        # Parse URI for query parameters
+        uri : URI = URI.parse(request.path)
+
+        # Build full URL for Lucky
+        host : String = request.authority || request.headers["host"]? || @host
+        port_suffix : String = (@port == 443) ? "" : ":#{@port}"
+        full_url : String = "#{request.scheme}://#{host}#{port_suffix}#{request.path}"
+
+        # Create HTTP request with proper resource and headers
+        http_request = HTTP::Request.new(
+          method: request.method,
+          resource: request.path,
+          headers: request.headers,
+          body: request.body.to_s,
+          version: "HTTP/2"
+        )
+
+        # Set additional Lucky-expected headers
+        http_request.headers["X-Forwarded-Proto"] = request.scheme
+        http_request.headers["X-Forwarded-Host"] = host
+
+        http_request
+      end
+
+      private def send_http2_response(response : HT2::Response,
+                                      http_response : HTTP::Server::Response,
+                                      response_io : IO::Memory) : Nil
+        # Set status
+        response.status = http_response.status_code
+
+        # Copy headers, filtering out connection-specific ones
+        http_response.headers.each do |name, values|
+          # Skip headers that don't apply to HTTP/2
+          next if connection_specific_header?(name)
+
+          values.each { |value| response.headers[name] = value }
+        end
+
+        # Set security headers if not already set
+        add_security_headers(response) if Lucky::Server.settings.add_security_headers?
+
+        # Copy body
+        response_io.rewind
+        body_content : String = response_io.gets_to_end
+        response.write(body_content.to_slice) unless body_content.empty?
+
+        response.close
+      end
+
+      private def handle_error(response : HT2::Response, error : Exception) : Nil
+        # Log error
+        Lucky::Log.error { "HTTP/2 request error: #{error.message}" }
+        error.backtrace?.try { |bt| Lucky::Log.error { bt.join("\n") } }
+
+        # Send error response
+        response.status = 500
+        response.headers["content-type"] = "text/plain"
+
+        error_message : String = Lucky::Env.production? ? "Internal Server Error" : "Internal Server Error: #{error.message}"
+
+        response.write(error_message.to_slice)
+        response.close
+      rescue
+        # Ignore errors while sending error response
+      end
+
+      private def connection_specific_header?(name : String) : Bool
+        case name.downcase
+        when "connection", "keep-alive", "proxy-connection",
+             "transfer-encoding", "upgrade", "http2-settings"
+          true
+        else
+          false
+        end
+      end
+
+      private def add_security_headers(response : HT2::Response) : Nil
+        # Add common security headers if not present
+        response.headers["X-Frame-Options"] ||= "SAMEORIGIN"
+        response.headers["X-Content-Type-Options"] ||= "nosniff"
+        response.headers["X-XSS-Protection"] ||= "1; mode=block"
+        response.headers["Referrer-Policy"] ||= "strict-origin-when-cross-origin"
+
+        # Add HSTS for HTTPS
+        response.headers["Strict-Transport-Security"] ||= "max-age=31536000; includeSubDomains"
+      end
+
+      private def settings
+        Lucky::Server.settings
+      end
+    end
+
+    # Extension to Lucky's server settings for HTTP/2
+    class Settings
+      # HTTP/2 specific settings
+      setting http2_enabled : Bool = false
+      setting max_concurrent_streams : UInt32 = 100_u32
+      setting initial_window_size : UInt32 = 65535_u32
+      setting max_frame_size : UInt32 = 16384_u32
+      setting max_header_list_size : UInt32 = 8192_u32
+      setting add_security_headers : Bool = true
+      setting ssl_ciphers : String? = nil
+    end
+  end
+end
+
+# Usage in Lucky's config/server.cr:
+#
+# Lucky::Server.configure do |settings|
+#   settings.http2_enabled = true
+#   settings.ssl_cert_file = "./cert.pem"
+#   settings.ssl_key_file = "./key.pem"
+#   settings.max_concurrent_streams = 100
+# end
+#
+# # In src/start_server.cr:
+# if Lucky::Server.settings.http2_enabled
+#   server = Lucky::Server::HTTP2Adapter.new(
+#     host: Lucky::Server.settings.host,
+#     port: Lucky::Server.settings.port,
+#     handler: Lucky::Server.build_handler,
+#     tls_cert_file: Lucky::Server.settings.ssl_cert_file,
+#     tls_key_file: Lucky::Server.settings.ssl_key_file
+#   )
+#   server.listen
+# else
+#   # Use standard HTTP/1.1 server
+#   Lucky::Server.new.listen
+# end
