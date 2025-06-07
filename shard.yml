@@ -12,7 +12,7 @@ description: |
 dependencies:
   h2o:
     github: nomadlabsinc/h2o
-    version: ~> 0.1
+    branch: main
 
 development_dependencies:
   spectator:
