@@ -28,9 +28,9 @@ module HT2
       bytes = Bytes.new(HEADER_SIZE + payload_bytes.size)
 
       # Length (24 bits)
-      bytes[0] = (@length >> 16).to_u8
-      bytes[1] = (@length >> 8).to_u8
-      bytes[2] = @length.to_u8
+      bytes[0] = ((@length >> 16) & 0xFF).to_u8
+      bytes[1] = ((@length >> 8) & 0xFF).to_u8
+      bytes[2] = (@length & 0xFF).to_u8
 
       # Type (8 bits)
       bytes[3] = @type.value
@@ -39,10 +39,10 @@ module HT2
       bytes[4] = @flags.value
 
       # Stream ID (32 bits with reserved bit)
-      bytes[5] = (@stream_id >> 24).to_u8 & 0x7F # Clear reserved bit
-      bytes[6] = (@stream_id >> 16).to_u8
-      bytes[7] = (@stream_id >> 8).to_u8
-      bytes[8] = @stream_id.to_u8
+      bytes[5] = ((@stream_id >> 24) & 0x7F).to_u8 # Clear reserved bit
+      bytes[6] = ((@stream_id >> 16) & 0xFF).to_u8
+      bytes[7] = ((@stream_id >> 8) & 0xFF).to_u8
+      bytes[8] = (@stream_id & 0xFF).to_u8
 
       # Copy payload
       payload_bytes.copy_to((bytes + HEADER_SIZE).to_unsafe, payload_bytes.size)

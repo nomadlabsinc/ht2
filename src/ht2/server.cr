@@ -61,7 +61,9 @@ module HT2
     private def handle_client(socket : TCPSocket)
       # Wrap with TLS if configured
       client_socket = if context = @tls_context
-                        OpenSSL::SSL::Socket::Server.new(socket, context)
+                        tls_socket = OpenSSL::SSL::Socket::Server.new(socket, context)
+                        tls_socket.sync_close = true
+                        tls_socket
                       else
                         socket
                       end

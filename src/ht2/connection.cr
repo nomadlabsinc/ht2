@@ -85,19 +85,25 @@ module HT2
     end
 
     def start : Nil
-      if @is_server
-        # Server waits for client preface
-        read_client_preface
-      else
-        # Client sends preface
-        send_client_preface
+      begin
+        if @is_server
+          # Server waits for client preface
+          read_client_preface
+        else
+          # Client sends preface
+          send_client_preface
+        end
+
+        # Send initial settings
+        send_frame(SettingsFrame.new(settings: @local_settings))
+
+        # Start reading frames
+        spawn { read_loop }
+      rescue ex : IO::Error
+        # Socket was closed during handshake
+        close
+        raise ex
       end
-
-      # Send initial settings
-      send_frame(SettingsFrame.new(settings: @local_settings))
-
-      # Start reading frames
-      spawn { read_loop }
     end
 
     def close : Nil
@@ -105,16 +111,24 @@ module HT2
       @closed = true
 
       unless @goaway_sent
-        send_goaway(ErrorCode::NO_ERROR)
+        begin
+          send_goaway(ErrorCode::NO_ERROR)
+        rescue ex : IO::Error
+          # Socket already closed, ignore
+        end
       end
 
-      @socket.close
+      begin
+        @socket.close
+      rescue ex : IO::Error
+        # Already closed, ignore
+      end
     end
 
     def create_stream : Stream
       # Check concurrent stream limit
       active_streams = @streams.count { |_, stream| !stream.closed? }
-      max_streams = @local_settings[SettingsParameter::MAX_CONCURRENT_STREAMS]
+      max_streams = @remote_settings[SettingsParameter::MAX_CONCURRENT_STREAMS]
 
       if active_streams >= max_streams
         raise ConnectionError.new(ErrorCode::REFUSED_STREAM, "Maximum concurrent streams (#{max_streams}) reached")
@@ -129,8 +143,14 @@ module HT2
 
     def send_frame(frame : Frame) : Nil
       @write_mutex.synchronize do
-        @socket.write(frame.to_bytes)
-        @socket.flush
+        begin
+          @socket.write(frame.to_bytes)
+          @socket.flush
+        rescue ex : IO::Error
+          # Socket closed, ignore write errors
+          @closed = true
+          raise ex
+        end
       end
     end
 
@@ -173,7 +193,11 @@ module HT2
 
     private def read_client_preface
       preface = Bytes.new(CONNECTION_PREFACE.bytesize)
-      @socket.read_fully(preface)
+      begin
+        @socket.read_fully(preface)
+      rescue ex : IO::Error
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Failed to read client preface: #{ex.message}")
+      end
 
       if String.new(preface) != CONNECTION_PREFACE
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Invalid client preface")
@@ -214,10 +238,14 @@ module HT2
           break
         rescue ex : ConnectionError
           send_goaway(ex.code, ex.message || "")
+          # Allow time for GOAWAY to be sent
+          sleep 0.1.seconds
           break
         rescue ex : StreamError
           stream = @streams[ex.stream_id]?
           stream.try(&.send_rst_stream(ex.code))
+          # Allow time for RST_STREAM to be sent
+          sleep 0.05.seconds
         end
       end
     ensure
@@ -285,11 +313,16 @@ module HT2
 
       if frame.flags.end_headers?
         # Complete headers
-        headers = @hpack_decoder.decode(frame.header_block)
-        stream.receive_headers(headers, frame.flags.end_stream?)
+        begin
+          headers = @hpack_decoder.decode(frame.header_block)
+          stream.receive_headers(headers, frame.flags.end_stream?)
 
-        if callback = @on_headers
-          callback.call(stream, headers, frame.flags.end_stream?)
+          if callback = @on_headers
+            callback.call(stream, headers, frame.flags.end_stream?)
+          end
+        rescue ex : HPACK::DecompressionError
+          # HPACK decompression failed - protocol error
+          raise StreamError.new(frame.stream_id, ErrorCode::COMPRESSION_ERROR, ex.message)
         end
       else
         # Expecting CONTINUATION frames
@@ -300,6 +333,10 @@ module HT2
     end
 
     private def handle_continuation_frame(frame : ContinuationFrame)
+      if @continuation_stream_id.nil?
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "CONTINUATION without HEADERS")
+      end
+
       if @continuation_stream_id != frame.stream_id
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "CONTINUATION stream mismatch")
       end
@@ -313,15 +350,20 @@ module HT2
 
       if frame.flags.end_headers?
         stream = get_stream(frame.stream_id)
-        headers = @hpack_decoder.decode(@continuation_headers.to_slice)
+        begin
+          headers = @hpack_decoder.decode(@continuation_headers.to_slice)
 
-        # Use tracked END_STREAM flag from original HEADERS frame
-        end_stream = @continuation_end_stream
+          # Use tracked END_STREAM flag from original HEADERS frame
+          end_stream = @continuation_end_stream
 
-        stream.receive_headers(headers, end_stream)
+          stream.receive_headers(headers, end_stream)
 
-        if callback = @on_headers
-          callback.call(stream, headers, end_stream)
+          if callback = @on_headers
+            callback.call(stream, headers, end_stream)
+          end
+        rescue ex : HPACK::DecompressionError
+          # HPACK decompression failed - protocol error
+          raise StreamError.new(frame.stream_id, ErrorCode::COMPRESSION_ERROR, ex.message)
         end
 
         @continuation_stream_id = nil
@@ -458,7 +500,7 @@ module HT2
 
         # Check concurrent stream limit
         active_streams = @streams.count { |_, stream| !stream.closed? }
-        max_streams = @remote_settings[SettingsParameter::MAX_CONCURRENT_STREAMS]
+        max_streams = @local_settings[SettingsParameter::MAX_CONCURRENT_STREAMS]
 
         if active_streams >= max_streams
           raise ConnectionError.new(ErrorCode::REFUSED_STREAM, "Maximum concurrent streams (#{max_streams}) reached")
