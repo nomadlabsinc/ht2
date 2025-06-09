@@ -19,8 +19,8 @@ Add this to your application's `shard.yml`:
 ```yaml
 dependencies:
   ht2:
-    github: yourusername/ht2
-    version: ~> 0.1.0
+    github: nomadlabsinc/ht2
+    branch: main
 ```
 
 ## Usage
