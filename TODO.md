@@ -5,9 +5,7 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 ## 🔧 RFC Compliance Issues
 
 ### Stream State Management
-- [ ] Create comprehensive test suite for all state transitions with every frame type
 - [ ] Consider refactoring to a more formal state machine pattern
-- [ ] Ensure PRIORITY frames can be processed for a short time after stream closure
 
 ### Adaptive Flow Control
 - [ ] Implement adaptive window update strategy based on data consumption rate

@@ -100,3 +100,12 @@ This document tracks completed features and fixes with their corresponding commi
   - Ban connections exceeding rapid reset thresholds
   - Monitor pending streams to prevent resource exhaustion
   - Provide metrics for attack pattern detection
+
+## ✅ Comprehensive Testing
+
+- [x] **Create comprehensive test suite for all state transitions with every frame type** - Commit: TBD
+  - Test all frame types (DATA, HEADERS, PRIORITY, RST_STREAM, WINDOW_UPDATE) in each state
+  - Cover all valid state transitions per RFC 7540 Section 5.1
+  - Validate frame rejection in invalid states
+  - Test special cases like trailers, concurrent END_STREAM, and error conditions
+  - Ensure PRIORITY frames work correctly after stream closure (2-second grace period)
