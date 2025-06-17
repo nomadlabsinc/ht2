@@ -145,4 +145,112 @@ describe HT2::AdaptiveFlowControl do
       flow_controller.current_threshold.should be < initial_threshold
     end
   end
+
+  describe "enhanced dynamic window update strategy" do
+    it "tracks burst detection state" do
+      flow_control = HT2::AdaptiveFlowControl.new(65536_i64, HT2::AdaptiveFlowControl::Strategy::DYNAMIC)
+
+      # Initially no burst
+      flow_control.metrics.burst_detected?.should be_false
+
+      # Can manually set burst state for testing
+      flow_control.metrics.burst_detected = true
+      flow_control.metrics.burst_detected?.should be_true
+
+      # Calculate increment during burst should give aggressive allocation
+      increment = flow_control.calculate_increment(10000_i64, 50000_i64)
+      increment.should be >= 65536 # At least full window during burst
+    end
+
+    it "adapts threshold based on consumption variance" do
+      flow_control = HT2::AdaptiveFlowControl.new(65536_i64, HT2::AdaptiveFlowControl::Strategy::DYNAMIC)
+      initial_threshold = flow_control.current_threshold
+
+      # Simulate variable consumption with needs_update checks
+      consumptions = [5000_i64, 50000_i64, 10000_i64, 45000_i64, 8000_i64]
+
+      consumptions.each_with_index do |consumed, i|
+        window = 65536_i64 - (consumed * (i + 1))
+        # This triggers threshold updates
+        flow_control.needs_update?(65536_i64, window)
+        flow_control.calculate_increment(window, consumed)
+        sleep 50.milliseconds
+      end
+
+      # Threshold should have adapted due to high variance
+      flow_control.current_threshold.should_not eq(initial_threshold)
+      flow_control.metrics.rate_variance.should be > 0
+    end
+
+    it "prevents stalls by increasing allocation after stall events" do
+      flow_control = HT2::AdaptiveFlowControl.new(65536_i64, HT2::AdaptiveFlowControl::Strategy::DYNAMIC)
+
+      # Record a stall
+      flow_control.record_stall
+      flow_control.metrics.stall_count.should eq(1)
+
+      # Calculate increment after stall
+      increment = flow_control.calculate_increment(1000_i64, 64536_i64)
+
+      # Should allocate aggressively to prevent future stalls
+      increment.should be >= 65536 # At least full window
+    end
+
+    it "uses predictive allocation for stable consumption" do
+      flow_control = HT2::AdaptiveFlowControl.new(65536_i64, HT2::AdaptiveFlowControl::Strategy::DYNAMIC)
+
+      # When not in burst and no stalls, should use predictive allocation
+      flow_control.metrics.burst_detected = false
+      flow_control.metrics.stall_count = 0
+      flow_control.metrics.rate_variance = 1000.0 # Low variance
+
+      # Calculate increment - should use predictive path
+      increment = flow_control.calculate_increment(45536_i64, 20000_i64)
+
+      # Increment should be reasonable
+      increment.should be >= 20000  # At least what was consumed
+      increment.should be <= 131072 # Max is 2x initial window
+    end
+
+    it "handles high variance consumption" do
+      flow_control = HT2::AdaptiveFlowControl.new(65536_i64, HT2::AdaptiveFlowControl::Strategy::DYNAMIC)
+
+      # Set high variance condition
+      flow_control.metrics.rate_variance = 40000.0 # High variance
+
+      # Calculate increment with high variance
+      increment = flow_control.calculate_increment(30000_i64, 35000_i64)
+
+      # Should allocate for peak consumption due to high variance
+      increment.should be >= 49152 # At least 75% of window
+    end
+
+    it "maintains bounds on increment calculation" do
+      flow_control = HT2::AdaptiveFlowControl.new(65536_i64, HT2::AdaptiveFlowControl::Strategy::DYNAMIC)
+
+      # Even with extreme consumption
+      increment = flow_control.calculate_increment(1000_i64, 64536_i64)
+
+      # Should respect max increment bounds
+      increment.should be <= 131072 # 2x initial window
+      increment.should be >= 16384  # At least 1/4 initial window
+    end
+
+    it "gradually converges threshold for normal consumption" do
+      flow_control = HT2::AdaptiveFlowControl.new(65536_i64, HT2::AdaptiveFlowControl::Strategy::DYNAMIC)
+      flow_control.current_threshold = 0.8 # Start high
+
+      # Simulate normal steady consumption with longer intervals
+      30.times do
+        flow_control.needs_update?(65536_i64, 32768_i64)
+        flow_control.calculate_increment(32768_i64, 16384_i64)
+        sleep 50.milliseconds # Give more time for rate calculation
+      end
+
+      # Should converge toward moderate threshold (0.5)
+      # With longer convergence time
+      flow_control.current_threshold.should be < 0.75
+      flow_control.current_threshold.should be > 0.35
+    end
+  end
 end

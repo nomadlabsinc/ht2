@@ -7,9 +7,6 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 ### Stream State Management
 - [ ] Consider refactoring to a more formal state machine pattern
 
-### Adaptive Flow Control
-- [ ] Implement adaptive window update strategy based on data consumption rate
-- [ ] Make increment calculation more dynamic instead of fixed threshold
 
 ## 🛡️ Security Issues
 
