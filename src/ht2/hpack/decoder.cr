@@ -8,11 +8,11 @@ module HT2
       getter dynamic_table : Array(Header)
       getter dynamic_table_size : UInt32
       property max_dynamic_table_size : UInt32
+      property max_headers_size : UInt32
 
-      def initialize(@max_dynamic_table_size : UInt32 = DEFAULT_HEADER_TABLE_SIZE)
+      def initialize(@max_dynamic_table_size : UInt32 = DEFAULT_HEADER_TABLE_SIZE, @max_headers_size : UInt32 = Security::MAX_HEADER_LIST_SIZE)
         @dynamic_table = Array(Header).new
         @dynamic_table_size = 0_u32
-        @max_headers_size = Security::MAX_HEADER_LIST_SIZE
         @total_headers_size = 0_u32
       end
 
