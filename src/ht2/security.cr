@@ -3,6 +3,7 @@ module HT2
     # Maximum sizes to prevent resource exhaustion
     MAX_HEADER_LIST_SIZE      =   8192_u32 # Maximum size of decompressed headers
     MAX_CONTINUATION_SIZE     = 32_768_u32 # Maximum accumulated CONTINUATION frames
+    MAX_CONTINUATION_FRAMES   =     20_u32 # Maximum number of CONTINUATION frames
     MAX_DYNAMIC_TABLE_ENTRIES =   1000_u32 # Maximum entries in HPACK dynamic table
     MAX_PING_QUEUE_SIZE       =     10_u32 # Maximum pending ping responses
     MAX_SETTINGS_PER_SECOND   =     10_u32 # Rate limit for SETTINGS frames
