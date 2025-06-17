@@ -10,7 +10,7 @@ module HT2
     getter tls_context : OpenSSL::SSL::Context::Server?
     getter handler : Handler
     getter header_table_size : UInt32
-    getter enable_push : Bool
+    getter? enable_push : Bool
     getter max_concurrent_streams : UInt32
     getter initial_window_size : UInt32
     getter max_frame_size : UInt32
@@ -117,7 +117,11 @@ module HT2
       puts "Error handling client: #{ex.message}"
     ensure
       @connections.delete(connection) if connection
-      client_socket.close if client_socket
+      begin
+        client_socket.close if client_socket
+      rescue ex : OpenSSL::SSL::Error | IO::Error
+        # Socket already closed, ignore
+      end
     end
 
     private def handle_stream(connection : Connection, stream : Stream)

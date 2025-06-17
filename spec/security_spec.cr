@@ -72,7 +72,7 @@ describe HT2::Security do
       expect_raises(HT2::ConnectionError, /Invalid character in header name/) do
         HT2::Security.validate_header_name("content type") # Space not allowed
       end
-      
+
       expect_raises(HT2::ConnectionError, /Invalid character in header name/) do
         HT2::Security.validate_header_name("content@type") # @ not allowed
       end

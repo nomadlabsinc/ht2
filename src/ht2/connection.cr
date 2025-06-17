@@ -90,39 +90,37 @@ module HT2
     end
 
     def start : Nil
-      begin
-        if @is_server
-          # Server waits for client preface
-          read_client_preface
-        else
-          # Client sends preface
-          send_client_preface
-        end
+      if @is_server
+        # Server waits for client preface
+        read_client_preface
+      else
+        # Client sends preface
+        send_client_preface
+      end
 
-        # Send initial settings
-        send_frame(SettingsFrame.new(settings: @local_settings))
+      # Send initial settings
+      send_frame(SettingsFrame.new(settings: @local_settings))
 
-        # Start reading frames
-        spawn { read_loop }
+      # Start reading frames
+      spawn { read_loop }
 
-        # Wait for SETTINGS acknowledgment with timeout
-        spawn do
-          select
-          when @settings_ack_channel.receive
-            # Settings acknowledged, continue
-          when timeout(HT2::SETTINGS_ACK_TIMEOUT)
-            # Timeout waiting for SETTINGS ACK
-            unless @closed
-              send_goaway(ErrorCode::SETTINGS_TIMEOUT, "Settings acknowledgment timeout")
-              close
-            end
+      # Wait for SETTINGS acknowledgment with timeout
+      spawn do
+        select
+        when @settings_ack_channel.receive
+          # Settings acknowledged, continue
+        when timeout(HT2::SETTINGS_ACK_TIMEOUT)
+          # Timeout waiting for SETTINGS ACK
+          unless @closed
+            send_goaway(ErrorCode::SETTINGS_TIMEOUT, "Settings acknowledgment timeout")
+            close
           end
         end
-      rescue ex : IO::Error
-        # Socket was closed during handshake
-        close
-        raise ex
       end
+    rescue ex : IO::Error
+      # Socket was closed during handshake
+      close
+      raise ex
     end
 
     def close : Nil
@@ -388,7 +386,8 @@ module HT2
       # Check continuation frame count limit
       @continuation_frame_count += 1
       if @continuation_frame_count > Security::MAX_CONTINUATION_FRAMES
-        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "CONTINUATION frame count exceeds limit: #{@continuation_frame_count}")
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR,
+          "CONTINUATION frame count exceeds limit: #{@continuation_frame_count}")
       end
 
       # Check continuation size limit
