@@ -72,7 +72,7 @@ describe HT2::Security do
       expect_raises(HT2::ConnectionError, /Invalid character in header name/) do
         HT2::Security.validate_header_name("content type") # Space not allowed
       end
-      
+
       expect_raises(HT2::ConnectionError, /Invalid character in header name/) do
         HT2::Security.validate_header_name("content@type") # @ not allowed
       end
@@ -83,7 +83,7 @@ describe HT2::Security do
       HT2::Security.validate_header_name("x-custom-header")
       HT2::Security.validate_header_name("header123")
       HT2::Security.validate_header_name("X-API-Key")
-      HT2::Security.validate_header_name("!#$%&'*+-.^_`|~")  # All valid token chars
+      HT2::Security.validate_header_name("!#$%&'*+-.^_`|~") # All valid token chars
     end
   end
 
