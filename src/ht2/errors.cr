@@ -39,4 +39,10 @@ module HT2
       super(message || "Stream #{@stream_id}: #{@code}")
     end
   end
+
+  class StreamClosedError < StreamError
+    def initialize(stream_id : UInt32, message : String? = nil)
+      super(stream_id, ErrorCode::STREAM_CLOSED, message)
+    end
+  end
 end

@@ -221,7 +221,7 @@ describe HT2::Security do
 
       # Create streams
       100.times do |i|
-        connection.streams[(i * 2 + 1).to_u32] = HT2::Stream.new((i * 2 + 1).to_u32, connection)
+        connection.streams[(i * 2 + 1).to_u32] = HT2::Stream.new(connection, (i * 2 + 1).to_u32)
       end
 
       # Send many RST_STREAM frames
