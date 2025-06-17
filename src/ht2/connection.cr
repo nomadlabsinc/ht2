@@ -61,7 +61,10 @@ module HT2
       @local_settings = default_settings
       @remote_settings = default_settings
       @hpack_encoder = HPACK::Encoder.new(@local_settings[SettingsParameter::HEADER_TABLE_SIZE])
-      @hpack_decoder = HPACK::Decoder.new(@remote_settings[SettingsParameter::HEADER_TABLE_SIZE])
+      @hpack_decoder = HPACK::Decoder.new(
+        @remote_settings[SettingsParameter::HEADER_TABLE_SIZE],
+        @local_settings[SettingsParameter::MAX_HEADER_LIST_SIZE]
+      )
       @window_size = DEFAULT_INITIAL_WINDOW_SIZE.to_i64
       @last_stream_id = @is_server ? 0_u32 : 1_u32
       @goaway_sent = false
@@ -71,8 +74,10 @@ module HT2
       @continuation_stream_id = nil
       @continuation_headers = IO::Memory.new
       @continuation_end_stream = false
+      @continuation_frame_count = 0_u32
       @ping_handlers = Hash(Bytes, Channel(Nil)).new
       @settings_ack_channel = Channel(Nil).new
+      @pending_settings = [] of Channel(Nil)
       @closed = false
       @write_mutex = Mutex.new
       @total_streams_count = 0_u32
@@ -85,25 +90,37 @@ module HT2
     end
 
     def start : Nil
-      begin
-        if @is_server
-          # Server waits for client preface
-          read_client_preface
-        else
-          # Client sends preface
-          send_client_preface
-        end
-
-        # Send initial settings
-        send_frame(SettingsFrame.new(settings: @local_settings))
-
-        # Start reading frames
-        spawn { read_loop }
-      rescue ex : IO::Error
-        # Socket was closed during handshake
-        close
-        raise ex
+      if @is_server
+        # Server waits for client preface
+        read_client_preface
+      else
+        # Client sends preface
+        send_client_preface
       end
+
+      # Send initial settings
+      send_frame(SettingsFrame.new(settings: @local_settings))
+
+      # Start reading frames
+      spawn { read_loop }
+
+      # Wait for SETTINGS acknowledgment with timeout
+      spawn do
+        select
+        when @settings_ack_channel.receive
+          # Settings acknowledged, continue
+        when timeout(HT2::SETTINGS_ACK_TIMEOUT)
+          # Timeout waiting for SETTINGS ACK
+          unless @closed
+            send_goaway(ErrorCode::SETTINGS_TIMEOUT, "Settings acknowledgment timeout")
+            close
+          end
+        end
+      end
+    rescue ex : IO::Error
+      # Socket was closed during handshake
+      close
+      raise ex
     end
 
     def close : Nil
@@ -181,10 +198,34 @@ module HT2
         @hpack_encoder.max_table_size = table_size
       end
 
+      # Update max header list size if changed
+      if max_headers = settings[SettingsParameter::MAX_HEADER_LIST_SIZE]?
+        @hpack_decoder.max_headers_size = max_headers
+      end
+
+      # Create a new channel for this specific settings update
+      ack_channel = Channel(Nil).new
+      @pending_settings << ack_channel
+
       frame = SettingsFrame.new(settings: settings)
       send_frame(frame)
 
-      @settings_ack_channel
+      # Add timeout handling
+      spawn do
+        select
+        when ack_channel.receive
+          # Settings acknowledged
+        when timeout(HT2::SETTINGS_ACK_TIMEOUT)
+          # Timeout waiting for SETTINGS ACK
+          @pending_settings.delete(ack_channel)
+          unless @closed
+            send_goaway(ErrorCode::SETTINGS_TIMEOUT, "Settings acknowledgment timeout")
+            close
+          end
+        end
+      end
+
+      ack_channel
     end
 
     def consume_window(size : Int32) : Nil
@@ -329,6 +370,7 @@ module HT2
         @continuation_stream_id = frame.stream_id
         @continuation_headers.write(frame.header_block)
         @continuation_end_stream = frame.flags.end_stream?
+        @continuation_frame_count = 0_u32
       end
     end
 
@@ -339,6 +381,13 @@ module HT2
 
       if @continuation_stream_id != frame.stream_id
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "CONTINUATION stream mismatch")
+      end
+
+      # Check continuation frame count limit
+      @continuation_frame_count += 1
+      if @continuation_frame_count > Security::MAX_CONTINUATION_FRAMES
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR,
+          "CONTINUATION frame count exceeds limit: #{@continuation_frame_count}")
       end
 
       # Check continuation size limit
@@ -368,6 +417,7 @@ module HT2
 
         @continuation_stream_id = nil
         @continuation_headers.clear
+        @continuation_frame_count = 0_u32
       end
     end
 
@@ -394,8 +444,13 @@ module HT2
 
     private def handle_settings_frame(frame : SettingsFrame)
       if frame.flags.ack?
-        # Settings acknowledged
+        # Settings acknowledged - notify the oldest pending settings
         @settings_ack_channel.send(nil)
+
+        # Also notify any pending update_settings calls
+        if channel = @pending_settings.shift?
+          channel.send(nil)
+        end
       else
         # Rate limit SETTINGS frames
         unless @settings_rate_limiter.check

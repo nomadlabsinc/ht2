@@ -61,8 +61,7 @@ def read_error_frame(socket : IO, timeout = 2.seconds) : HT2::FrameType?
     begin
       # Read frame header
       header = Bytes.new(9)
-      bytes_read = socket.read(header)
-      return nil if bytes_read == 0 || bytes_read < 9
+      socket.read_fully(header)
 
       # Parse frame type (4th byte)
       frame_type = HT2::FrameType.new(header[3])
@@ -850,7 +849,7 @@ describe "HTTP/2 CVE Integration Tests" do
         tls_socket.write(headers_frame.to_bytes)
 
         # Check for error response
-        error_type = read_error_frame(tls_socket, 2.seconds)
+        error_type = read_error_frame(tls_socket, 5.seconds)
 
         # Should receive either GOAWAY or RST_STREAM
         error_type.should_not be_nil

@@ -12,7 +12,7 @@ class MockConnection < HT2::Connection
     @remote_settings = HT2::SettingsFrame::Settings.new
     @remote_settings[HT2::SettingsParameter::INITIAL_WINDOW_SIZE] = 65535_u32
     @hpack_encoder = HT2::HPACK::Encoder.new
-    @hpack_decoder = HT2::HPACK::Decoder.new
+    @hpack_decoder = HT2::HPACK::Decoder.new(HT2::DEFAULT_HEADER_TABLE_SIZE, HT2::Security::MAX_HEADER_LIST_SIZE)
     @window_size = 65535_i64
     @last_stream_id = 0_u32
     @goaway_sent = false
@@ -23,8 +23,10 @@ class MockConnection < HT2::Connection
     @continuation_stream_id = nil
     @continuation_headers = IO::Memory.new
     @continuation_end_stream = false
+    @continuation_frame_count = 0_u32
     @ping_handlers = Hash(Bytes, Channel(Nil)).new
     @settings_ack_channel = Channel(Nil).new
+    @pending_settings = [] of Channel(Nil)
     @closed = false
     @write_mutex = Mutex.new
     @total_streams_count = 0_u32

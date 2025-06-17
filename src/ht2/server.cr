@@ -9,6 +9,8 @@ module HT2
     getter port : Int32
     getter tls_context : OpenSSL::SSL::Context::Server?
     getter handler : Handler
+    getter header_table_size : UInt32
+    getter? enable_push : Bool
     getter max_concurrent_streams : UInt32
     getter initial_window_size : UInt32
     getter max_frame_size : UInt32
@@ -20,6 +22,8 @@ module HT2
 
     def initialize(@host : String, @port : Int32, @handler : Handler,
                    @tls_context : OpenSSL::SSL::Context::Server? = nil,
+                   @header_table_size : UInt32 = DEFAULT_HEADER_TABLE_SIZE,
+                   @enable_push : Bool = false,
                    @max_concurrent_streams : UInt32 = DEFAULT_MAX_CONCURRENT_STREAMS,
                    @initial_window_size : UInt32 = DEFAULT_INITIAL_WINDOW_SIZE,
                    @max_frame_size : UInt32 = DEFAULT_MAX_FRAME_SIZE,
@@ -83,6 +87,8 @@ module HT2
 
       # Configure connection settings
       settings = SettingsFrame::Settings.new
+      settings[SettingsParameter::HEADER_TABLE_SIZE] = @header_table_size
+      settings[SettingsParameter::ENABLE_PUSH] = @enable_push ? 1_u32 : 0_u32
       settings[SettingsParameter::MAX_CONCURRENT_STREAMS] = @max_concurrent_streams
       settings[SettingsParameter::INITIAL_WINDOW_SIZE] = @initial_window_size
       settings[SettingsParameter::MAX_FRAME_SIZE] = @max_frame_size
@@ -111,7 +117,11 @@ module HT2
       puts "Error handling client: #{ex.message}"
     ensure
       @connections.delete(connection) if connection
-      client_socket.close if client_socket
+      begin
+        client_socket.close if client_socket
+      rescue ex : OpenSSL::SSL::Error | IO::Error
+        # Socket already closed, ignore
+      end
     end
 
     private def handle_stream(connection : Connection, stream : Stream)
