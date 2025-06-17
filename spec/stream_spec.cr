@@ -23,6 +23,7 @@ class MockConnection < HT2::Connection
     @continuation_stream_id = nil
     @continuation_headers = IO::Memory.new
     @continuation_end_stream = false
+    @continuation_frame_count = 0_u32
     @ping_handlers = Hash(Bytes, Channel(Nil)).new
     @settings_ack_channel = Channel(Nil).new
     @pending_settings = [] of Channel(Nil)

@@ -71,6 +71,7 @@ module HT2
       @continuation_stream_id = nil
       @continuation_headers = IO::Memory.new
       @continuation_end_stream = false
+      @continuation_frame_count = 0_u32
       @ping_handlers = Hash(Bytes, Channel(Nil)).new
       @settings_ack_channel = Channel(Nil).new
       @pending_settings = [] of Channel(Nil)
@@ -363,6 +364,7 @@ module HT2
         @continuation_stream_id = frame.stream_id
         @continuation_headers.write(frame.header_block)
         @continuation_end_stream = frame.flags.end_stream?
+        @continuation_frame_count = 0_u32
       end
     end
 
@@ -373,6 +375,12 @@ module HT2
 
       if @continuation_stream_id != frame.stream_id
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "CONTINUATION stream mismatch")
+      end
+
+      # Check continuation frame count limit
+      @continuation_frame_count += 1
+      if @continuation_frame_count > Security::MAX_CONTINUATION_FRAMES
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "CONTINUATION frame count exceeds limit: #{@continuation_frame_count}")
       end
 
       # Check continuation size limit
@@ -402,6 +410,7 @@ module HT2
 
         @continuation_stream_id = nil
         @continuation_headers.clear
+        @continuation_frame_count = 0_u32
       end
     end
 
