@@ -14,6 +14,9 @@ module HT2
   # HTTP/2 connection preface
   CONNECTION_PREFACE = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 
+  # Timeout for receiving SETTINGS acknowledgment
+  SETTINGS_ACK_TIMEOUT = 10.seconds
+
   # Default settings
   DEFAULT_HEADER_TABLE_SIZE      =   4096_u32
   DEFAULT_MAX_CONCURRENT_STREAMS =    100_u32
