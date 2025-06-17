@@ -61,15 +61,27 @@ module HT2
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Empty header name")
       end
 
-      # HTTP/2 allows more characters in header names, including :
-      # Pseudo-headers start with : (e.g., :method, :path)
-      name.each_char.with_index do |char, index|
-        if index == 0 && char == ':'
-          # Allow : at the beginning for pseudo-headers
-          next
-        end
+      # Check if it's a pseudo-header (starts with :)
+      is_pseudo_header = name.starts_with?(':')
 
-        unless char.ascii_lowercase? || char.ascii_number? || char.in?('-', '_', '.', ':')
+      # For pseudo-headers, validate the part after the colon
+      # For regular headers, validate the entire name
+      start_index = is_pseudo_header ? 1 : 0
+
+      if is_pseudo_header && name.size == 1
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Invalid pseudo-header: empty name after colon")
+      end
+
+      # Validate characters according to RFC 7230 token definition
+      # token = 1*tchar
+      # tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." /
+      #         "0-9" / "A-Z" / "^" / "_" / "`" / "a-z" / "|" / "~"
+      name[start_index..].each_char do |char|
+        unless char == '!' || char == '#' || char == '$' || char == '%' ||
+               char == '&' || char == '\'' || char == '*' || char == '+' ||
+               char == '-' || char == '.' || char.ascii_number? ||
+               char.ascii_letter? || char == '^' || char == '_' ||
+               char == '`' || char == '|' || char == '~'
           raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Invalid character in header name: #{char}")
         end
       end

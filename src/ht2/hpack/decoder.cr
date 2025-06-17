@@ -37,7 +37,9 @@ module HT2
           # Indexed header field
           index = decode_integer(io, first_byte, 7)
           header = get_header(index)
-          headers << header
+          # Ensure header name is lowercase (static table entries should already be lowercase)
+          name = header[0].starts_with?(':') ? header[0] : header[0].downcase
+          headers << {name, header[1]}
         elsif first_byte & 0x40 != 0
           # Literal header field with incremental indexing
           index = decode_integer(io, first_byte, 6)
@@ -62,6 +64,9 @@ module HT2
 
           # Validate header name
           Security.validate_header_name(name)
+
+          # Convert header name to lowercase as required by HTTP/2
+          name = name.downcase unless name.starts_with?(':')
 
           headers << {name, value}
           add_to_dynamic_table(name, value)
@@ -94,6 +99,9 @@ module HT2
 
           # Validate header name
           Security.validate_header_name(name)
+
+          # Convert header name to lowercase as required by HTTP/2
+          name = name.downcase unless name.starts_with?(':')
 
           headers << {name, value}
         end
