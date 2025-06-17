@@ -1,3 +1,4 @@
+require "./adaptive_flow_control"
 require "./security"
 
 module HT2
@@ -15,8 +16,10 @@ module HT2
     getter id : UInt32
     property state : StreamState
     getter connection : Connection
-    property window_size : Int64
+    property send_window_size : Int64
+    property recv_window_size : Int64
     getter priority : PriorityData?
+    property closed_at : Time?
 
     property request_headers : Array(Tuple(String, String))?
     property response_headers : Array(Tuple(String, String))?
@@ -24,12 +27,18 @@ module HT2
     property? end_stream_sent : Bool
     property? end_stream_received : Bool
 
-    def initialize(@id : UInt32, @connection : Connection, @state : StreamState = StreamState::IDLE)
-      @window_size = connection.remote_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64
+    def initialize(@connection : Connection, @id : UInt32, @state : StreamState = StreamState::IDLE)
+      @send_window_size = connection.remote_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64
+      @recv_window_size = connection.local_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64
       @priority = nil
       @data = IO::Memory.new
       @end_stream_sent = false
       @end_stream_received = false
+      @closed_at = nil
+      @flow_controller = AdaptiveFlowControl.new(
+        @recv_window_size,
+        AdaptiveFlowControl::Strategy::DYNAMIC
+      )
     end
 
     def send_headers(headers : Array(Tuple(String, String)), end_stream : Bool = false) : Nil
@@ -52,7 +61,7 @@ module HT2
       validate_send_data
 
       # Check flow control window
-      if data.size > @window_size
+      if data.size > @send_window_size
         raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR, "Data size exceeds window")
       end
 
@@ -64,7 +73,7 @@ module HT2
       frame = DataFrame.new(@id, data, flags)
       @connection.send_frame(frame)
 
-      @window_size -= data.size
+      @send_window_size -= data.size
       @connection.consume_window(data.size)
 
       @end_stream_sent = true if end_stream
@@ -79,9 +88,10 @@ module HT2
       frame = RstStreamFrame.new(@id, error_code)
       @connection.send_frame(frame)
       @state = StreamState::CLOSED
+      @closed_at = Time.utc
     end
 
-    def receive_headers(headers : Array(Tuple(String, String)), end_stream : Bool) : Nil
+    def receive_headers(headers : Array(Tuple(String, String)), end_stream : Bool, priority : Bool = false) : Nil
       validate_receive_headers
 
       @request_headers = headers
@@ -92,32 +102,91 @@ module HT2
     def receive_data(data : Bytes, end_stream : Bool) : Nil
       validate_receive_data
 
+      # Update receive window
+      @recv_window_size -= data.size
       @data.write(data)
+
+      # Check if we need to send a window update
+      if data.size > 0
+        initial_window = @connection.local_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64
+        consumed = initial_window - @recv_window_size
+
+        if @flow_controller.needs_update?(initial_window, @recv_window_size)
+          increment = @flow_controller.calculate_increment(@recv_window_size, consumed)
+
+          if increment > 0
+            # Send stream-level window update
+            frame = WindowUpdateFrame.new(@id, increment.to_u32)
+            @connection.send_frame(frame)
+            @recv_window_size += increment
+          end
+        end
+
+        # Record stall if window is exhausted
+        if @recv_window_size <= 0
+          @flow_controller.record_stall
+        end
+      end
+
       @end_stream_received = true if end_stream
       update_state_after_data_received(end_stream)
     end
 
-    def receive_window_update(increment : UInt32) : Nil
+    def update_send_window(increment : Int32) : Nil
       # Check for zero increment
       if increment == 0
         raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Window increment cannot be zero")
       end
 
       # Use checked arithmetic
-      new_window = Security.checked_add(@window_size, increment.to_i64)
+      new_window = Security.checked_add(@send_window_size, increment.to_i64)
 
       if new_window > Security::MAX_WINDOW_SIZE
         raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR, "Window size overflow")
       end
 
-      @window_size = new_window
+      @send_window_size = new_window
     end
 
-    def receive_rst_stream : Nil
+    def update_recv_window(increment : Int32) : Nil
+      # In CLOSED state, ignore window updates
+      return if @state == StreamState::CLOSED
+
+      # In IDLE state, window updates are not allowed
+      if @state == StreamState::IDLE
+        raise ProtocolError.new("Cannot update window in IDLE state")
+      end
+
+      # Check for zero increment
+      if increment == 0
+        raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Window increment cannot be zero")
+      end
+
+      # Use checked arithmetic
+      new_window = Security.checked_add(@recv_window_size, increment.to_i64)
+
+      if new_window > Security::MAX_WINDOW_SIZE
+        raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR, "Window size overflow")
+      end
+
+      @recv_window_size = new_window
+    end
+
+    def receive_rst_stream(error_code : ErrorCode) : Nil
       @state = StreamState::CLOSED
+      @closed_at = Time.utc
     end
 
     def receive_priority(priority : PriorityData) : Nil
+      # PRIORITY frames are allowed in any state, including CLOSED
+      # for a short period after stream closure
+      if @state == StreamState::CLOSED && @closed_at
+        # Allow PRIORITY frames for 2 seconds after closure
+        closed_at = @closed_at
+        return unless closed_at
+        elapsed = Time.utc - closed_at
+        return if elapsed > 2.seconds
+      end
       @priority = priority
     end
 
@@ -125,8 +194,10 @@ module HT2
       case @state
       when StreamState::IDLE, StreamState::RESERVED_LOCAL
         # OK
-      when StreamState::HALF_CLOSED_REMOTE
-        # OK for trailers
+      when StreamState::OPEN, StreamState::HALF_CLOSED_REMOTE
+        # OK for trailers after DATA
+      when StreamState::CLOSED
+        raise StreamClosedError.new(@id, "Cannot send headers on closed stream")
       else
         raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Cannot send headers in state #{@state}")
       end
@@ -136,8 +207,10 @@ module HT2
       case @state
       when StreamState::OPEN, StreamState::HALF_CLOSED_REMOTE
         # OK
+      when StreamState::CLOSED, StreamState::HALF_CLOSED_LOCAL
+        raise StreamClosedError.new(@id, "Cannot send data on closed stream")
       else
-        raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Cannot send data in state #{@state}")
+        raise ProtocolError.new("Cannot send data in state #{@state}")
       end
     end
 
@@ -145,10 +218,12 @@ module HT2
       case @state
       when StreamState::IDLE, StreamState::RESERVED_REMOTE
         # OK
-      when StreamState::HALF_CLOSED_LOCAL
-        # OK for trailers
+      when StreamState::OPEN, StreamState::HALF_CLOSED_LOCAL
+        # OK for trailers after DATA
+      when StreamState::CLOSED
+        raise StreamClosedError.new(@id, "Cannot receive headers on closed stream")
       else
-        raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Cannot receive headers in state #{@state}")
+        raise ProtocolError.new("Cannot receive headers in state #{@state}")
       end
     end
 
@@ -156,8 +231,12 @@ module HT2
       case @state
       when StreamState::OPEN, StreamState::HALF_CLOSED_LOCAL
         # OK
+      when StreamState::CLOSED, StreamState::HALF_CLOSED_REMOTE
+        raise StreamClosedError.new(@id, "Cannot receive data on closed stream")
+      when StreamState::IDLE
+        raise ProtocolError.new("Cannot receive data in IDLE state")
       else
-        raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Cannot receive data in state #{@state}")
+        raise ProtocolError.new("Cannot receive data in state #{@state}")
       end
     end
 
@@ -167,8 +246,16 @@ module HT2
         @state = end_stream ? StreamState::HALF_CLOSED_LOCAL : StreamState::OPEN
       when StreamState::RESERVED_LOCAL
         @state = StreamState::HALF_CLOSED_REMOTE
+      when StreamState::OPEN
+        # Sending headers with END_STREAM in OPEN state (trailers)
+        if end_stream
+          @state = StreamState::HALF_CLOSED_LOCAL
+        end
       when StreamState::HALF_CLOSED_REMOTE
-        @state = StreamState::CLOSED if end_stream
+        if end_stream
+          @state = StreamState::CLOSED
+          @closed_at = Time.utc
+        end
       end
     end
 
@@ -180,6 +267,7 @@ module HT2
         @state = StreamState::HALF_CLOSED_LOCAL
       when StreamState::HALF_CLOSED_REMOTE
         @state = StreamState::CLOSED
+        @closed_at = Time.utc
       end
     end
 
@@ -190,7 +278,10 @@ module HT2
       when StreamState::RESERVED_REMOTE
         @state = StreamState::HALF_CLOSED_LOCAL
       when StreamState::HALF_CLOSED_LOCAL
-        @state = StreamState::CLOSED if end_stream
+        if end_stream
+          @state = StreamState::CLOSED
+          @closed_at = Time.utc
+        end
       end
     end
 
@@ -202,6 +293,7 @@ module HT2
         @state = StreamState::HALF_CLOSED_REMOTE
       when StreamState::HALF_CLOSED_LOCAL
         @state = StreamState::CLOSED
+        @closed_at = Time.utc
       end
     end
 

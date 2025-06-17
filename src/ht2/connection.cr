@@ -1,5 +1,7 @@
+require "./adaptive_flow_control"
 require "./frames"
 require "./hpack"
+require "./rapid_reset_protection"
 require "./security"
 require "./stream"
 
@@ -87,6 +89,16 @@ module HT2
       @ping_rate_limiter = Security::RateLimiter.new(Security::MAX_PING_PER_SECOND)
       @rst_rate_limiter = Security::RateLimiter.new(Security::MAX_RST_PER_SECOND)
       @priority_rate_limiter = Security::RateLimiter.new(Security::MAX_PRIORITY_PER_SECOND)
+
+      # Adaptive flow control
+      @flow_controller = AdaptiveFlowControl.new(
+        @local_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64,
+        AdaptiveFlowControl::Strategy::DYNAMIC
+      )
+
+      # Rapid reset protection
+      @rapid_reset_protection = RapidResetProtection.new
+      @connection_id = "#{@socket.class.name}:#{@socket.object_id}"
     end
 
     def start : Nil
@@ -152,7 +164,7 @@ module HT2
       end
 
       stream_id = next_stream_id
-      stream = Stream.new(stream_id, self)
+      stream = Stream.new(self, stream_id)
       @streams[stream_id] = stream
       @total_streams_count += 1
       stream
@@ -324,14 +336,27 @@ module HT2
       # Update flow control windows
       stream.receive_data(frame.data, frame.flags.end_stream?)
 
-      # Send window update if needed
+      # Record data received for rapid reset protection
       if frame.data.size > 0
-        threshold = @local_settings[SettingsParameter::INITIAL_WINDOW_SIZE] / 2
+        @rapid_reset_protection.record_data_received(frame.stream_id)
+      end
 
-        if @window_size < threshold
-          increment = @local_settings[SettingsParameter::INITIAL_WINDOW_SIZE] - @window_size
-          send_frame(WindowUpdateFrame.new(0, increment.to_u32))
-          @window_size += increment
+      # Send window update if needed using adaptive flow control
+      if frame.data.size > 0
+        consumed = @local_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64 - @window_size
+
+        if @flow_controller.needs_update?(@local_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64, @window_size)
+          increment = @flow_controller.calculate_increment(@window_size, consumed)
+
+          if increment > 0
+            send_frame(WindowUpdateFrame.new(0, increment.to_u32))
+            @window_size += increment
+          end
+        end
+
+        # Record stall if window is exhausted
+        if @window_size <= 0
+          @flow_controller.record_stall
         end
       end
 
@@ -357,6 +382,9 @@ module HT2
         begin
           headers = @hpack_decoder.decode(frame.header_block)
           stream.receive_headers(headers, frame.flags.end_stream?)
+
+          # Record headers received for rapid reset protection
+          @rapid_reset_protection.record_headers_received(frame.stream_id)
 
           if callback = @on_headers
             callback.call(stream, headers, frame.flags.end_stream?)
@@ -438,8 +466,14 @@ module HT2
       stream = @streams[frame.stream_id]?
       return unless stream
 
-      stream.receive_rst_stream
+      # Record cancellation for rapid reset detection
+      unless @rapid_reset_protection.record_stream_cancelled(frame.stream_id, @connection_id)
+        raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "Rapid reset attack detected")
+      end
+
+      stream.receive_rst_stream(frame.error_code)
       @streams.delete(frame.stream_id)
+      @rapid_reset_protection.record_stream_closed(frame.stream_id)
     end
 
     private def handle_settings_frame(frame : SettingsFrame)
@@ -466,7 +500,7 @@ module HT2
           when SettingsParameter::INITIAL_WINDOW_SIZE
             # Update all stream windows
             diff = value.to_i64 - @remote_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64
-            @streams.each_value { |stream| stream.window_size += diff }
+            @streams.each_value { |stream| stream.send_window_size += diff }
           end
         end
 
@@ -539,7 +573,7 @@ module HT2
       else
         # Stream window update
         stream = get_stream(frame.stream_id)
-        stream.receive_window_update(frame.window_size_increment)
+        stream.update_send_window(frame.window_size_increment.to_i32)
       end
     end
 
@@ -551,6 +585,15 @@ module HT2
       @streams[stream_id] ||= begin
         if stream_id <= @last_stream_id
           raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Stream ID not increasing")
+        end
+
+        # Check rapid reset protection
+        if @rapid_reset_protection.banned?(@connection_id)
+          raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "Connection banned due to rapid reset attack")
+        end
+
+        unless @rapid_reset_protection.record_stream_created(stream_id, @connection_id)
+          raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "Stream creation rate limit exceeded")
         end
 
         # Check concurrent stream limit
@@ -568,7 +611,7 @@ module HT2
 
         @last_stream_id = stream_id
         @total_streams_count += 1
-        Stream.new(stream_id, self, StreamState::IDLE)
+        Stream.new(self, stream_id, StreamState::IDLE)
       end
     end
 
