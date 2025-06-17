@@ -23,7 +23,9 @@ module HT2
         end
 
         headers.each do |name, value|
-          encode_header(io, name, value)
+          # Convert header name to lowercase as required by HTTP/2
+          lowercase_name = name.starts_with?(':') ? name : name.downcase
+          encode_header(io, lowercase_name, value)
         end
 
         io.to_slice
