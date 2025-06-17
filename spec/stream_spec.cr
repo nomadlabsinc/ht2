@@ -12,7 +12,7 @@ class MockConnection < HT2::Connection
     @remote_settings = HT2::SettingsFrame::Settings.new
     @remote_settings[HT2::SettingsParameter::INITIAL_WINDOW_SIZE] = 65535_u32
     @hpack_encoder = HT2::HPACK::Encoder.new
-    @hpack_decoder = HT2::HPACK::Decoder.new
+    @hpack_decoder = HT2::HPACK::Decoder.new(HT2::DEFAULT_HEADER_TABLE_SIZE, HT2::Security::MAX_HEADER_LIST_SIZE)
     @window_size = 65535_i64
     @last_stream_id = 0_u32
     @goaway_sent = false

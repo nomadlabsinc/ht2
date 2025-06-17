@@ -61,7 +61,10 @@ module HT2
       @local_settings = default_settings
       @remote_settings = default_settings
       @hpack_encoder = HPACK::Encoder.new(@local_settings[SettingsParameter::HEADER_TABLE_SIZE])
-      @hpack_decoder = HPACK::Decoder.new(@remote_settings[SettingsParameter::HEADER_TABLE_SIZE])
+      @hpack_decoder = HPACK::Decoder.new(
+        @remote_settings[SettingsParameter::HEADER_TABLE_SIZE],
+        @local_settings[SettingsParameter::MAX_HEADER_LIST_SIZE]
+      )
       @window_size = DEFAULT_INITIAL_WINDOW_SIZE.to_i64
       @last_stream_id = @is_server ? 0_u32 : 1_u32
       @goaway_sent = false
@@ -195,6 +198,11 @@ module HT2
       # Update HPACK table size if changed
       if table_size = settings[SettingsParameter::HEADER_TABLE_SIZE]?
         @hpack_encoder.max_table_size = table_size
+      end
+
+      # Update max header list size if changed
+      if max_headers = settings[SettingsParameter::MAX_HEADER_LIST_SIZE]?
+        @hpack_decoder.max_headers_size = max_headers
       end
 
       # Create a new channel for this specific settings update
