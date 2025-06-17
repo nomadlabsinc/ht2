@@ -70,17 +70,20 @@ describe HT2::Security do
 
     it "validates header names contain only valid characters" do
       expect_raises(HT2::ConnectionError, /Invalid character in header name/) do
-        HT2::Security.validate_header_name("Content-Type") # Uppercase not allowed
-      end
-
-      expect_raises(HT2::ConnectionError, /Invalid character in header name/) do
         HT2::Security.validate_header_name("content type") # Space not allowed
       end
+      
+      expect_raises(HT2::ConnectionError, /Invalid character in header name/) do
+        HT2::Security.validate_header_name("content@type") # @ not allowed
+      end
 
-      # These should be valid
+      # These should be valid (uppercase is allowed by RFC 7230)
+      HT2::Security.validate_header_name("Content-Type")
       HT2::Security.validate_header_name("content-type")
       HT2::Security.validate_header_name("x-custom-header")
       HT2::Security.validate_header_name("header123")
+      HT2::Security.validate_header_name("X-API-Key")
+      HT2::Security.validate_header_name("!#$%&'*+-.^_`|~") # All valid token chars
     end
   end
 
@@ -132,7 +135,7 @@ describe HT2::Security do
       connection = HT2::Connection.new(io, is_server: true)
 
       # Set low limit for testing
-      connection.local_settings[HT2::SettingsParameter::MAX_CONCURRENT_STREAMS] = 2_u32
+      connection.remote_settings[HT2::SettingsParameter::MAX_CONCURRENT_STREAMS] = 2_u32
 
       # Create maximum allowed streams
       stream1 = connection.create_stream
