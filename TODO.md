@@ -1,105 +1,115 @@
+# HT2 HTTP/2 Server - TODO List
 
+This document consolidates all remaining tasks for the HT2 HTTP/2 server implementation.
 
-# Lucky Framework Changes
+## 🔧 RFC Compliance Issues
 
-This section assumes `ht2` shard is complete and available. It details changes required within the Lucky framework itself.
+### Stream State Management
+- [ ] Create comprehensive test suite for all state transitions with every frame type
+- [ ] Consider refactoring to a more formal state machine pattern for better maintainability
+- [ ] Ensure PRIORITY frames can be processed for a short time after stream closure (per RFC 7540 Section 5.1)
 
-## 1. Core Framework Modifications
+### Flow Control
+- [ ] Implement adaptive window update strategy based on data consumption rate
+- [ ] Make increment calculation more dynamic instead of fixed threshold
+- [ ] Track data consumption over time to make better-informed window update decisions
 
-### 1.1. Configuration
-- [ ] Add new configuration options in `config/server.cr` (or equivalent) for HTTP/2:
-    - [ ] `config.http2.enabled = true/false` (default to `false` initially).
-    - [ ] `config.http2.port` (if different from HTTP/1.1, though typically same port with ALPN).
-    - [ ] `config.http2.tls_key_file` and `config.http2.tls_cert_file` (emphasize TLS requirement).
-    - [ ] Expose relevant `ht2::Server` settings (e.g., `max_concurrent_streams`, `initial_window_size`).
-- [ ] Update `lucky watch` and server startup commands (`Lucky::ServerRunner` or similar) to read and apply these configurations.
-- [ ] Ensure development mode (auto-reload) is compatible with the new server setup.
+### Error Handling
+- [ ] Review all ConnectionError and StreamError exceptions to ensure most specific ErrorCode is used
+- [ ] Add more comprehensive GOAWAY handling tests
+- [ ] Ensure proper error codes for edge cases (e.g., FRAME_SIZE_ERROR vs PROTOCOL_ERROR)
 
-### 1.2. Server Abstraction Layer (Recommended)
-- [ ] Define a `Lucky::Server::AdapterInterface` (e.g., using an abstract class or module).
-    - [ ] Common methods: `initialize(config)`, `listen`, `close`.
-    - [ ] Common handler signature or adaptation logic.
-- [ ] Create `Lucky::Server::HTTP1Adapter` wrapping `Crystal::HTTP::Server` and conforming to `AdapterInterface`.
-    - [ ] This adapter would use existing Lucky HTTP/1.1 logic.
-- [ ] Create `Lucky::Server::HTTP2Adapter` wrapping `ht2::Server` and conforming to `AdapterInterface`.
-    - [ ] This adapter will integrate the new `ht2` shard.
-- [ ] Refactor `Lucky::ServerRunner` (or equivalent) to instantiate and use the appropriate adapter based on configuration (`config.http2.enabled`).
+## 🔒 Security Enhancements
 
-### 1.3. Request/Response Object Adaptation
-- [ ] Review `Lucky::Request` and `Lucky::Response`.
-- [ ] If `ht2` uses its own request/response objects (`HT2::Request`, `HT2::Response`):
-    - [ ] Implement mapping logic from `HT2::Request` to `Lucky::Request`.
-        - [ ] Ensure correct population of `method`, `path`, `headers`, `body`, `params`, `cookies`, `remote_ip`, `scheme`, `host`, `port`.
-        - [ ] Pay special attention to HTTP/2 pseudo-headers and lowercase header names.
-    - [ ] Implement mapping logic from `Lucky::Response` to `HT2::Response`.
-        - [ ] Ensure correct setting of `status_code`, `headers`, `body`.
-- [ ] If `ht2` can work directly with `HTTP::Request` and `HTTP::Response` (or compatible types), ensure full compatibility.
-- [ ] Update `Lucky::Route` and dispatching mechanism to handle requests from the HTTP/2 server.
+### Rapid Reset Defense (CVE-2023-44487)
+- [ ] Check stream limits *before* allocating Stream objects to prevent resource allocation
+- [ ] Implement "pending stream" queue to defer full stream initialization until confirmed valid
+- [ ] Consider implementing global rate limiters across all connections (not just per-connection)
 
-### 1.4. Middleware and Handler Compatibility
-- [ ] Review all built-in Lucky middleware/handlers:
-    - [ ] `Lucky::StaticFileHandler`: Consider opportunities for server push (e.g., pushing linked CSS/JS for an HTML file).
-    - [ ] `Lucky::ForceSSLHandler`: Behavior might need adjustment as HTTP/2 is typically run over TLS. Could be a no-op or verify scheme.
-    - [ ] `Lucky::ErrorHandler`: Ensure error responses are correctly formatted for HTTP/2.
-    - [ ] `Lucky::Session::SaveSessionHandler`: Ensure cookie handling is compatible.
-    - [ ] `Lucky::CSRFHandler`: Verify token mechanisms.
-- [ ] Ensure all custom headers set by Lucky or application code are handled correctly (e.g. case-insensitivity for lookup, lowercase for sending).
-- [ ] Update any middleware that directly interacts with `HTTP::Server::Context` to use the new `HT2::Context` or an abstracted version.
+### Header Compression Bomb Protection
+- [ ] Add timeout for receiving complete header block with CONTINUATION frames
+- [ ] Implement more sophisticated HPACK bomb detection beyond just size limits
 
-### 1.5. TLS Management
-- [ ] Ensure Lucky's TLS configuration (`config.ssl_key_file`, `config.ssl_cert_file`) can be used by `ht2::Server`.
-- [ ] Verify ALPN is correctly configured when TLS is enabled for HTTP/2.
-- [ ] Update documentation regarding TLS setup, emphasizing its necessity for browser-based HTTP/2.
+### Additional Security Hardening
+- [ ] Add overflow protection for INITIAL_WINDOW_SIZE changes in settings
+- [ ] Validate all incoming settings values (e.g., MAX_FRAME_SIZE must be between 2^14 and 2^24-1)
+- [ ] Implement connection-level resource tracking and limits
 
-### 1.6. Testing
-- [ ] Update existing integration and acceptance tests to run over an HTTP/2-enabled server.
-- [ ] Add new tests specifically for HTTP/2 functionality if Lucky exposes any (e.g., server push APIs).
-- [ ] Test behavior with mixed HTTP/1.1 and HTTP/2 configurations if supported.
-- [ ] Perform thorough testing with various HTTP/2 clients (browsers, curl with HTTP/2).
+## ⚡ Performance Optimizations
 
-### 1.7. Documentation Updates
-- [ ] Update Lucky guides on server configuration to include HTTP/2 settings.
-- [ ] Document any changes in behavior or new features related to HTTP/2.
-- [ ] Provide guidance for application developers on how to leverage HTTP/2 (e.g., implications for asset loading, server push if available).
-- [ ] Update deployment guides with considerations for HTTP/2 (e.g., reverse proxy configuration like Nginx/HAProxy for HTTP/2 termination or pass-through).
+### Concurrency Improvements
+- [ ] Implement bounded worker pool for stream handling with configurable size
+- [ ] Provide back-pressure mechanism to prevent unbounded fiber creation
+- [ ] Consider fiber pool reuse for frequently created/destroyed fibers
 
-## 2. Integrating `ht2` Shard - Multi-Step Action Plan
+### Write Performance
+- [ ] Implement dedicated write fiber pattern per connection using channels
+- [ ] Eliminate write mutex contention by serializing writes through a single fiber
+- [ ] Consider write coalescing for small frames
 
-This assumes the Server Abstraction Layer (1.2) is being implemented.
+### Memory Efficiency
+- [ ] Use connection-level read buffer with slices for zero-copy frame parsing
+- [ ] Implement buffer pooling for frame serialization
+- [ ] Reduce allocations in hot paths (frame parsing, HPACK operations)
 
-### 2.1. Phase 1: Initial Setup and Basic Integration
-- [ ] Add `ht2` shard to Lucky's `shard.yml`.
-- [ ] Implement the `Lucky::Server::AdapterInterface`.
-- [ ] Implement `Lucky::Server::HTTP1Adapter` by refactoring existing `HTTP::Server` usage into it. Ensure Lucky works as before with this adapter.
-- [ ] Implement the basic structure of `Lucky::Server::HTTP2Adapter`, instantiating `ht2::Server`.
-- [ ] Modify `Lucky::ServerRunner` to select and use `HTTP1Adapter` or `HTTP2Adapter` based on `config.http2.enabled`.
+### HPACK Performance
+- [ ] Profile HPACK encoder/decoder under load
+- [ ] Optimize dynamic table operations (consider hash map for lookups)
+- [ ] Optimize Huffman encoding/decoding with table-driven approach
 
-### 2.2. Phase 2: Request/Response Path Adaptation
-- [ ] Implement the handler logic within `Lucky::Server::HTTP2Adapter` to:
-    - [ ] Receive `HT2::Context` (or equivalent) from `ht2::Server`.
-    - [ ] Convert/map `HT2::Request` to `Lucky::Request`.
-    - [ ] Pass `Lucky::Request` through Lucky's routing and action dispatch.
-    - [ ] Receive `Lucky::Response` from the action.
-    - [ ] Convert/map `Lucky::Response` back to `HT2::Response` and send it.
-- [ ] Thoroughly test this request/response flow with simple routes and actions.
+## 🎛️ Configuration & Settings
 
-### 2.3. Phase 3: Middleware and Advanced Feature Compatibility
-- [ ] Systematically review and update each piece of Lucky middleware (as per 1.4) for compatibility with the `HTTP2Adapter` flow.
-- [ ] Test file serving, error handling, sessions, CSRF, etc., over HTTP/2.
-- [ ] If `ht2` supports server push and Lucky wants to expose it:
-    - [ ] Design an API in `Lucky::Response` (e.g., `response.push("/assets/style.css")`).
-    - [ ] Implement this API to call the underlying `ht2::Response#push_promise` method.
+### Logging and Observability
+- [ ] Add structured logging with configurable levels
+- [ ] Implement metrics collection (connection count, stream count, frame rates)
+- [ ] Add debug mode with detailed frame logging
 
-### 2.4. Phase 4: Configuration, TLS, and Edge Cases
-- [ ] Fully implement configuration loading for all `config.http2.*` settings in `Lucky::Server::HTTP2Adapter`.
-- [ ] Ensure TLS context setup and ALPN negotiation are robust.
-- [ ] Test various edge cases: large uploads/downloads, many concurrent requests, slow clients, error conditions (stream resets, connection drops).
+### Settings Validation
+- [ ] Add comprehensive validation for all HTTP/2 settings parameters
+- [ ] Implement settings change notifications to allow application-level handling
+- [ ] Add configuration validation on server startup
 
-### 2.5. Phase 5: Testing, Documentation, and Release Preparation
-- [ ] Conduct comprehensive end-to-end testing of Lucky applications running with `config.http2.enabled = true`.
-- [ ] Perform performance benchmarks comparing HTTP/1.1 (via `HTTP1Adapter`) and HTTP/2 (via `HTTP2Adapter`).
-- [ ] Write all necessary documentation updates for Lucky users (guides, API docs).
-- [ ] Prepare release notes detailing the new HTTP/2 support.
-- [ ] Consider a beta release or feature flag period for wider testing.
+## 🧪 Testing & Documentation
 
-This checklist provides a detailed roadmap. Each item may represent significant effort and further sub-tasks.
+### Test Coverage
+- [ ] Add stress tests for high concurrent connection/stream scenarios
+- [ ] Implement fuzzing tests for frame parsing and HPACK decoding
+- [ ] Add performance benchmarks with comparison to other HTTP/2 servers
+
+### Documentation
+- [ ] Create comprehensive API documentation
+- [ ] Add deployment guide with best practices
+- [ ] Document performance tuning options
+- [ ] Add troubleshooting guide for common issues
+
+## 🚀 Lucky Framework Integration
+
+### Phase 1: Basic Integration
+- [ ] Add `ht2` shard to Lucky's `shard.yml`
+- [ ] Implement `Lucky::Server::AdapterInterface`
+- [ ] Create `Lucky::Server::HTTP2Adapter` wrapping `ht2::Server`
+- [ ] Modify `Lucky::ServerRunner` to support HTTP/2 mode
+
+### Phase 2: Request/Response Adaptation
+- [ ] Implement mapping from `HT2::Request` to `Lucky::Request`
+- [ ] Implement mapping from `Lucky::Response` to `HT2::Response`
+- [ ] Handle HTTP/2 pseudo-headers correctly
+- [ ] Ensure proper header name case handling
+
+### Phase 3: Middleware Compatibility
+- [ ] Update all Lucky middleware for HTTP/2 compatibility
+- [ ] Implement server push API if desired
+- [ ] Ensure session and CSRF handlers work correctly
+
+### Phase 4: Production Readiness
+- [ ] Add HTTP/2-specific configuration options to Lucky
+- [ ] Update Lucky documentation for HTTP/2 usage
+- [ ] Create migration guide for existing Lucky apps
+- [ ] Add HTTP/2-specific tests to Lucky test suite
+
+## 📝 Notes
+
+- Performance optimizations are marked as "Future Work" and can be deferred
+- Security enhancements should be prioritized
+- RFC compliance issues should be addressed before Lucky integration
+- All changes should maintain backward compatibility where possible
