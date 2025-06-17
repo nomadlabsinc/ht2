@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        crystal-version:
+          - '1.16.3'
+          - 'latest'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Crystal
+      uses: crystal-lang/install-crystal@v1
+      with:
+        crystal: ${{ matrix.crystal-version }}
+    
+    - name: Install dependencies
+      run: shards install
+    
+    - name: Run tests
+      run: crystal spec
+    
+    - name: Check formatting
+      run: crystal tool format --check
+    
+    - name: Build
+      run: crystal build --release src/ht2.cr
+
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Crystal
+      uses: crystal-lang/install-crystal@v1
+      with:
+        crystal: latest
+    
+    - name: Install dependencies
+      run: shards install
+    
+    - name: Install ameba
+      run: |
+        git clone https://github.com/crystal-ameba/ameba.git
+        cd ameba
+        make
+        sudo make install
+    
+    - name: Run ameba
+      run: ameba --except lib
