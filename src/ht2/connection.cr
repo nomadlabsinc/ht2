@@ -73,6 +73,7 @@ module HT2
       @continuation_end_stream = false
       @ping_handlers = Hash(Bytes, Channel(Nil)).new
       @settings_ack_channel = Channel(Nil).new
+      @pending_settings = [] of Channel(Nil)
       @closed = false
       @write_mutex = Mutex.new
       @total_streams_count = 0_u32
@@ -99,6 +100,20 @@ module HT2
 
         # Start reading frames
         spawn { read_loop }
+
+        # Wait for SETTINGS acknowledgment with timeout
+        spawn do
+          select
+          when @settings_ack_channel.receive
+            # Settings acknowledged, continue
+          when timeout(HT2::SETTINGS_ACK_TIMEOUT)
+            # Timeout waiting for SETTINGS ACK
+            unless @closed
+              send_goaway(ErrorCode::SETTINGS_TIMEOUT, "Settings acknowledgment timeout")
+              close
+            end
+          end
+        end
       rescue ex : IO::Error
         # Socket was closed during handshake
         close
@@ -181,10 +196,29 @@ module HT2
         @hpack_encoder.max_table_size = table_size
       end
 
+      # Create a new channel for this specific settings update
+      ack_channel = Channel(Nil).new
+      @pending_settings << ack_channel
+
       frame = SettingsFrame.new(settings: settings)
       send_frame(frame)
 
-      @settings_ack_channel
+      # Add timeout handling
+      spawn do
+        select
+        when ack_channel.receive
+          # Settings acknowledged
+        when timeout(HT2::SETTINGS_ACK_TIMEOUT)
+          # Timeout waiting for SETTINGS ACK
+          @pending_settings.delete(ack_channel)
+          unless @closed
+            send_goaway(ErrorCode::SETTINGS_TIMEOUT, "Settings acknowledgment timeout")
+            close
+          end
+        end
+      end
+
+      ack_channel
     end
 
     def consume_window(size : Int32) : Nil
@@ -394,8 +428,13 @@ module HT2
 
     private def handle_settings_frame(frame : SettingsFrame)
       if frame.flags.ack?
-        # Settings acknowledged
+        # Settings acknowledged - notify the oldest pending settings
         @settings_ack_channel.send(nil)
+
+        # Also notify any pending update_settings calls
+        if channel = @pending_settings.shift?
+          channel.send(nil)
+        end
       else
         # Rate limit SETTINGS frames
         unless @settings_rate_limiter.check
