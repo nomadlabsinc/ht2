@@ -69,3 +69,34 @@ This document tracks completed features and fixes with their corresponding commi
   - Include formatting check
   - Include Ameba linting
   - Cache dependencies for faster builds
+
+## ✅ Stream State Management & Testing
+
+- [x] **Create comprehensive test suite for stream state transitions** - Commit: 2ac37d1
+  - Test all valid state transitions per RFC 7540 Section 5.1
+  - Cover edge cases like trailers and concurrent END_STREAM
+  - Validate frame rejection in invalid states
+  - Test PRIORITY frame handling after closure
+
+- [x] **Ensure PRIORITY frames work after stream closure** - Commit: 2ac37d1
+  - Allow PRIORITY frames for 2 seconds after stream closure
+  - Track stream closure time for proper validation
+  - Implement RFC 7540 compliant behavior
+
+## ✅ Performance & Flow Control
+
+- [x] **Implement adaptive flow control window updates** - Commit: 2ac37d1
+  - Dynamic window update strategies based on consumption rate
+  - Support for conservative, moderate, aggressive, and dynamic modes
+  - Adapt to network conditions (RTT, packet loss)
+  - Track and prevent flow control stalls
+  - Implement both connection and stream-level flow control
+
+## ✅ Security - Rapid Reset Protection
+
+- [x] **Implement rapid reset attack protection (CVE-2023-44487)** - Commit: 2ac37d1
+  - Track stream creation rates and rapid cancellations
+  - Configurable rate limits for streams per second
+  - Ban connections exceeding rapid reset thresholds
+  - Monitor pending streams to prevent resource exhaustion
+  - Provide metrics for attack pattern detection
