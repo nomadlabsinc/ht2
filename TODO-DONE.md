@@ -103,9 +103,24 @@ This document tracks completed features and fixes with their corresponding commi
 
 ## ✅ Comprehensive Testing
 
-- [x] **Create comprehensive test suite for all state transitions with every frame type** - Commit: TBD
+- [x] **Create comprehensive test suite for all state transitions with every frame type** - Commit: 98b6f53
   - Test all frame types (DATA, HEADERS, PRIORITY, RST_STREAM, WINDOW_UPDATE) in each state
   - Cover all valid state transitions per RFC 7540 Section 5.1
   - Validate frame rejection in invalid states
   - Test special cases like trailers, concurrent END_STREAM, and error conditions
   - Ensure PRIORITY frames work correctly after stream closure (2-second grace period)
+
+## ✅ Enhanced Adaptive Flow Control
+
+- [x] **Implement adaptive window update strategy based on data consumption rate** - Commit: TBD
+  - Enhanced burst detection based on consumption rate patterns
+  - Dynamic threshold adjustment based on variance and network conditions
+  - Predictive allocation for stable consumption patterns
+  - Aggressive allocation after stalls to prevent future stalls
+  - Bounds checking and overflow protection
+
+- [x] **Make increment calculation more dynamic** - Commit: TBD
+  - Consider multiple factors: burst state, stall history, rate variance
+  - Predictive consumption calculation using weighted averages
+  - Dynamic safety margins based on variance
+  - Adaptive response to high RTT and packet loss

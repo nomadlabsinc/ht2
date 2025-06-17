@@ -22,6 +22,10 @@ module HT2
       property consumption_rate : Float64 # bytes per second
       property avg_increment_size : Float64
       property stall_count : Int32 # Number of times window hit zero
+      property? burst_detected : Bool
+      property last_burst_time : Time?
+      property smoothed_rate : Float64 # Smoothed consumption rate
+      property rate_variance : Float64 # Variance in consumption rate
 
       def initialize
         @bytes_consumed = 0_i64
@@ -30,6 +34,10 @@ module HT2
         @consumption_rate = 0.0
         @avg_increment_size = 0.0
         @stall_count = 0
+        @burst_detected = false
+        @last_burst_time = nil
+        @smoothed_rate = 0.0
+        @rate_variance = 0.0
       end
     end
 
@@ -89,7 +97,10 @@ module HT2
                   end
 
       # Ensure increment doesn't exceed maximum window size
-      max_increment = (Security::MAX_WINDOW_SIZE - current_window).to_i32
+      max_possible = Security::MAX_WINDOW_SIZE - current_window
+      return 0 if max_possible <= 0
+
+      max_increment = Math.min(max_possible, Int32::MAX.to_i64).to_i32
       Math.min(increment, max_increment)
     end
 
@@ -124,11 +135,36 @@ module HT2
       if elapsed > 0
         # Update consumption rate (exponential moving average)
         instant_rate = consumed.to_f / elapsed
+
         @metrics.consumption_rate = if @metrics.update_count == 0
                                       instant_rate
                                     else
                                       @metrics.consumption_rate * 0.7 + instant_rate * 0.3
                                     end
+
+        # Update smoothed rate with longer window for stability
+        @metrics.smoothed_rate = if @metrics.update_count == 0
+                                   instant_rate
+                                 else
+                                   @metrics.smoothed_rate * 0.9 + instant_rate * 0.1
+                                 end
+
+        # Track rate variance for burst detection
+        if @metrics.update_count > 2 # Need at least 3 samples for meaningful comparison
+          rate_diff = (instant_rate - @metrics.smoothed_rate).abs
+          @metrics.rate_variance = @metrics.rate_variance * 0.8 + rate_diff * 0.2
+
+          # Detect burst: instant rate is 3x the smoothed rate AND above window size
+          if instant_rate > @metrics.smoothed_rate * 3.0 && instant_rate > @initial_window_size.to_f * 1.5
+            @metrics.burst_detected = true
+            @metrics.last_burst_time = now
+          elsif @metrics.burst_detected?
+            # Check if burst has ended (rate dropped significantly)
+            if instant_rate < @metrics.smoothed_rate * 1.5 || instant_rate < @initial_window_size.to_f
+              @metrics.burst_detected = false
+            end
+          end
+        end
       end
 
       @metrics.bytes_consumed += consumed
@@ -137,31 +173,71 @@ module HT2
     end
 
     private def update_dynamic_threshold : Nil
-      # Adjust threshold based on consumption patterns
-      if @metrics.consumption_rate > @initial_window_size
-        # High consumption: update earlier
-        @current_threshold = Math.min(@current_threshold + 0.02, @max_update_threshold)
-      elsif @metrics.consumption_rate < @initial_window_size * 0.1
-        # Low consumption: update later
-        @current_threshold = Math.max(@current_threshold - 0.02, @min_update_threshold)
+      # Adjust threshold based on consumption patterns and burst detection
+      if @metrics.burst_detected?
+        # During burst: update very early to keep data flowing
+        @current_threshold = Math.min(0.85, @max_update_threshold)
+      elsif @metrics.stall_count > 0
+        # After stalls: update earlier to prevent future stalls
+        target_threshold = Math.min(@current_threshold + 0.15, @max_update_threshold)
+        @current_threshold += (target_threshold - @current_threshold) * 0.3
+      elsif @metrics.rate_variance > @initial_window_size * 0.3
+        # High variance: update moderately early
+        target_threshold = Math.min(0.7, @max_update_threshold)
+        @current_threshold += (target_threshold - @current_threshold) * 0.1
+      elsif @metrics.consumption_rate > @initial_window_size * 1.2
+        # High stable consumption: gradually increase threshold
+        @current_threshold = Math.min(@current_threshold + 0.03, @max_update_threshold)
+      elsif @metrics.consumption_rate < @initial_window_size * 0.2
+        # Low consumption: gradually decrease threshold
+        @current_threshold = Math.max(@current_threshold - 0.03, @min_update_threshold)
+      else
+        # Normal consumption: slowly converge to moderate threshold
+        target = 0.5
+        @current_threshold += (target - @current_threshold) * 0.05
       end
     end
 
     private def calculate_dynamic_increment(current_window : Int64, consumed : Int64) : Int32
-      # Base increment on consumption rate and patterns
-      if @metrics.consumption_rate > @initial_window_size * 1.5
-        # Very high consumption: give full window
-        @initial_window_size.to_i32
-      elsif @metrics.consumption_rate > @initial_window_size * 0.75
-        # High consumption: give 75% of window
-        (@initial_window_size * 0.75).to_i32
-      elsif @metrics.consumption_rate < @initial_window_size * 0.25
-        # Low consumption: give smaller increment
-        Math.max(consumed * 3, @initial_window_size / 4).to_i32
-      else
-        # Moderate consumption: give half window
-        (@initial_window_size / 2).to_i32
-      end
+      # Calculate base increment based on multiple factors
+      base_increment = if @metrics.burst_detected?
+                         # During burst: allocate aggressively
+                         rate_based = Math.min(@metrics.consumption_rate * 2, Int32::MAX.to_f).to_i64
+                         Math.max(@initial_window_size, rate_based).to_i32
+                       elsif @metrics.stall_count > 0
+                         # After stalls: increase allocation to prevent future stalls
+                         rate_based = Math.min(@metrics.consumption_rate * 1.5, Int32::MAX.to_f).to_i64
+                         Math.max(@initial_window_size, rate_based).to_i32
+                       elsif @metrics.rate_variance > @initial_window_size * 0.5
+                         # High variance: allocate for peak consumption
+                         rate_based = Math.min(@metrics.consumption_rate * 1.25, Int32::MAX.to_f).to_i64
+                         Math.max((@initial_window_size * 0.75).to_i64, rate_based).to_i32
+                       else
+                         # Stable consumption: use predictive allocation
+                         predicted_consumption = predict_next_consumption(consumed)
+                         Math.max(predicted_consumption, (@initial_window_size / 2).to_i32)
+                       end
+
+      # Apply bounds and safety margins with overflow protection
+      min_increment = Math.min(Math.max(consumed * 2, @initial_window_size / 4), Int32::MAX.to_i64).to_i32
+      max_increment = Math.min(@initial_window_size * 2, Int32::MAX.to_i64).to_i32
+
+      Math.min(Math.max(base_increment, min_increment), max_increment)
+    end
+
+    private def predict_next_consumption(recent_consumed : Int64) : Int32
+      # Use weighted average of recent and smoothed consumption rates
+      weight = Math.min(@metrics.update_count / 10.0, 0.8)
+      predicted_rate = @metrics.smoothed_rate * weight + @metrics.consumption_rate * (1 - weight)
+
+      # Add margin based on variance
+      margin = 1.0 + Math.min(@metrics.rate_variance / @initial_window_size, 0.5)
+
+      # Prevent overflow
+      result = predicted_rate * margin
+      return Int32::MAX if result > Int32::MAX
+
+      result.to_i32
     end
   end
 end
