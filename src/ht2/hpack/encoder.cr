@@ -13,8 +13,9 @@ module HT2
         @header_table_size_update = nil
       end
 
-      def encode(headers : Array(Header)) : Bytes
-        io = IO::Memory.new
+      def encode(headers : Array(Header), io : IO::Memory? = nil) : Bytes
+        owned_io = io.nil?
+        io ||= IO::Memory.new
 
         # Send table size update if needed
         if update = @header_table_size_update
@@ -26,7 +27,12 @@ module HT2
           encode_header(io, name, value)
         end
 
-        io.to_slice
+        if owned_io
+          io.to_slice
+        else
+          # Return just the written portion when using external IO
+          io.to_slice[0, io.pos]
+        end
       end
 
       def max_table_size=(size : UInt32)
@@ -148,7 +154,9 @@ module HT2
 
       private def encode_string(io : IO, value : String)
         # Always use Huffman encoding for better compression
-        encoded = Huffman.encode(value)
+        # Use a temporary buffer to get the size first
+        temp = IO::Memory.new
+        encoded = Huffman.encode(value, temp)
         encode_integer(io, encoded.size.to_u32, 7, 0x80_u8) # Huffman flag
         io.write(encoded)
       end

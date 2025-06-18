@@ -1,5 +1,7 @@
 require "./adaptive_flow_control"
 require "./backpressure"
+require "./buffer_pool"
+require "./frame_cache"
 require "./frames"
 require "./hpack"
 require "./rapid_reset_protection"
@@ -24,6 +26,8 @@ module HT2
     getter? goaway_received : Bool
     getter applied_settings : SettingsFrame::Settings
     getter backpressure_manager : BackpressureManager
+    getter buffer_pool : BufferPool
+    getter frame_cache : FrameCache
     getter? closed : Bool
 
     property on_headers : HeaderCallback?
@@ -120,6 +124,12 @@ module HT2
 
       # Backpressure management
       @backpressure_manager = BackpressureManager.new
+
+      # Buffer pool for frame operations
+      @buffer_pool = BufferPool.new
+
+      # Frame cache for common frames
+      @frame_cache = FrameCache.new
     end
 
     def start : Nil
@@ -192,7 +202,26 @@ module HT2
     end
 
     def send_frame(frame : Frame) : Nil
-      frame_bytes = frame.to_bytes
+      # Check for cached frames
+      is_cached = false
+      frame_bytes = case frame
+                    when SettingsFrame
+                      if frame.as(SettingsFrame).flags.ack?
+                        cached = @frame_cache.get("settings_ack")
+                        is_cached = !cached.nil?
+                        cached
+                      end
+                    when PingFrame
+                      ping_frame = frame.as(PingFrame)
+                      if ping_frame.flags.ack? && ping_frame.opaque_data.all? { |byte| byte == 0 }
+                        cached = @frame_cache.get("ping_ack_0")
+                        is_cached = !cached.nil?
+                        cached
+                      end
+                    end
+
+      # Use buffer pool if not cached
+      frame_bytes ||= frame.to_bytes(@buffer_pool)
       stream_id = frame.stream_id > 0 ? frame.stream_id : nil
 
       # Track write pressure before sending
@@ -201,6 +230,7 @@ module HT2
       # Wait if backpressure is high
       unless @backpressure_manager.wait_for_capacity
         @backpressure_manager.complete_write(frame_bytes.size.to_i64, stream_id)
+        @buffer_pool.release(frame_bytes) unless is_cached
         raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "Write buffer full")
       end
 
@@ -211,9 +241,13 @@ module HT2
 
           # Mark write as complete
           @backpressure_manager.complete_write(frame_bytes.size.to_i64, stream_id)
+
+          # Release buffer back to pool if not from cache
+          @buffer_pool.release(frame_bytes) unless is_cached
         rescue ex : IO::Error
           # Socket closed, ignore write errors
           @closed = true
+          @buffer_pool.release(frame_bytes) unless is_cached
           raise ex
         end
       end
@@ -315,8 +349,8 @@ module HT2
     private def read_loop
       loop do
         begin
-          # Read frame header
-          header_bytes = Bytes.new(Frame::HEADER_SIZE)
+          # Read frame header using buffer pool
+          header_bytes = @buffer_pool.acquire(Frame::HEADER_SIZE)
           @socket.read_fully(header_bytes)
 
           length, _, _, stream_id = Frame.parse_header(header_bytes)
@@ -325,18 +359,24 @@ module HT2
           max_frame_size = @remote_settings[SettingsParameter::MAX_FRAME_SIZE]
           Security.validate_frame_size(length, max_frame_size)
 
-          # Read frame payload
-          payload = Bytes.new(length)
-          @socket.read_fully(payload) if length > 0
+          # Acquire buffer for full frame
+          full_frame = @buffer_pool.acquire(Frame::HEADER_SIZE + length)
 
-          # Combine header and payload
-          full_frame = Bytes.new(Frame::HEADER_SIZE + length)
+          # Copy header
           header_bytes.copy_to(full_frame)
-          payload.copy_to((full_frame + Frame::HEADER_SIZE).to_unsafe, length) if length > 0
+
+          # Read payload directly into buffer
+          if length > 0
+            @socket.read_fully(full_frame[Frame::HEADER_SIZE, length])
+          end
 
           # Parse and handle frame
-          frame = Frame.parse(full_frame)
+          frame = Frame.parse(full_frame[0, Frame::HEADER_SIZE + length])
           handle_frame(frame)
+
+          # Release buffers back to pool
+          @buffer_pool.release(header_bytes)
+          @buffer_pool.release(full_frame)
         rescue ex : IO::Error
           break
         rescue ex : ConnectionError

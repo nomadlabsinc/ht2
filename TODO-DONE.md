@@ -181,7 +181,7 @@ This document tracks completed features and fixes with their corresponding commi
   - Thread-safe with atomic counters and mutex protection
   - Comprehensive test coverage for all functionality
 
-- [x] **Add backpressure mechanisms for slow consumers** - Current Branch
+- [x] **Add backpressure mechanisms for slow consumers** - Commit: d1b0ad4
   - Created BackpressureManager class to track write pressure at connection and stream levels
   - Implemented high/low watermark system for automatic pause/resume of writes
   - Added per-stream pressure tracking with 1/4 of total buffer allocation per stream
@@ -189,3 +189,15 @@ This document tracks completed features and fixes with their corresponding commi
   - Added chunked data sending support in Stream for large payloads
   - Enhanced WorkerPool with try_submit, can_accept?, and utilization methods
   - Comprehensive test coverage for all backpressure scenarios
+
+## ✅ Performance - Memory Optimization
+
+- [x] **Optimize memory allocation for frame processing** - Current Branch
+  - Implemented BufferPool class for reusable byte buffers
+  - Added buffer pooling to frame serialization (Frame#to_bytes)
+  - Integrated buffer pool into Connection read/write loops
+  - Created FrameCache for frequently used frames (SETTINGS ACK, PING ACK)
+  - Optimized HPACK encoder to support external IO buffers
+  - Enhanced Huffman encoding to reuse buffers
+  - Reduced allocations in frame processing hot paths
+  - Added performance benchmarks to measure improvements
