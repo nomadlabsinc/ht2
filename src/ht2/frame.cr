@@ -1,4 +1,5 @@
 require "./buffer_pool"
+require "./zero_copy"
 
 module HT2
   # Base frame structure for HTTP/2
@@ -51,6 +52,16 @@ module HT2
       payload_bytes.copy_to((bytes + HEADER_SIZE).to_unsafe, payload_bytes.size)
 
       bytes
+    end
+
+    # Write frame directly to IO without intermediate buffer (zero-copy)
+    def write_to(io : IO) : Nil
+      ZeroCopy.write_frame(self, io)
+    end
+
+    # Write frame using provided header buffer (zero-copy)
+    def write_to(io : IO, header_buffer : Bytes) : Nil
+      ZeroCopy.write_frame_with_buffer(self, io, header_buffer)
     end
 
     # Parse frame header from bytes

@@ -32,7 +32,7 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 - [x] Optimize memory allocation for frame processing
 
 ### I/O Optimizations
-- [ ] Implement zero-copy frame forwarding where possible
+- [x] Implement zero-copy frame forwarding where possible
 - [ ] Add vectored I/O for multi-frame writes
 - [ ] Optimize buffer sizes based on connection patterns
 

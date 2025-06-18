@@ -192,7 +192,7 @@ This document tracks completed features and fixes with their corresponding commi
 
 ## ✅ Performance - Memory Optimization
 
-- [x] **Optimize memory allocation for frame processing** - Current Branch
+- [x] **Optimize memory allocation for frame processing** - Commit: fbbd5e7
   - Implemented BufferPool class for reusable byte buffers
   - Added buffer pooling to frame serialization (Frame#to_bytes)
   - Integrated buffer pool into Connection read/write loops
@@ -201,3 +201,14 @@ This document tracks completed features and fixes with their corresponding commi
   - Enhanced Huffman encoding to reuse buffers
   - Reduced allocations in frame processing hot paths
   - Added performance benchmarks to measure improvements
+
+## ✅ Performance - I/O Optimizations
+
+- [x] **Implement zero-copy frame forwarding where possible** - Current Branch
+  - Created ZeroCopy module with write_frame and forward_data_frame methods
+  - Added zero-copy write methods to Frame base class (write_to)
+  - Optimized DataFrame to use zero-copy for non-padded frames
+  - Updated Connection to use zero-copy path for DATA frames
+  - Implemented BufferList for accumulating data without copying
+  - Added comprehensive test coverage for all zero-copy functionality
+  - Reduces memory allocations and copies for high-throughput scenarios

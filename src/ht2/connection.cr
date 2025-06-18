@@ -202,6 +202,12 @@ module HT2
     end
 
     def send_frame(frame : Frame) : Nil
+      # For DATA frames without padding, use zero-copy path
+      if frame.is_a?(DataFrame) && !frame.flags.padded?
+        send_frame_zero_copy(frame.as(DataFrame))
+        return
+      end
+
       # Check for cached frames
       is_cached = false
       frame_bytes = case frame
@@ -248,6 +254,37 @@ module HT2
           # Socket closed, ignore write errors
           @closed = true
           @buffer_pool.release(frame_bytes) unless is_cached
+          raise ex
+        end
+      end
+    end
+
+    # Zero-copy send for DATA frames without padding
+    private def send_frame_zero_copy(frame : DataFrame) : Nil
+      # Calculate frame size for backpressure tracking
+      frame_size = Frame::HEADER_SIZE + frame.data.size
+      stream_id = frame.stream_id
+
+      # Track write pressure before sending
+      @backpressure_manager.track_write(frame_size.to_i64, stream_id)
+
+      # Wait if backpressure is high
+      unless @backpressure_manager.wait_for_capacity
+        @backpressure_manager.complete_write(frame_size.to_i64, stream_id)
+        raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "Write buffer full")
+      end
+
+      @write_mutex.synchronize do
+        begin
+          # Use zero-copy write
+          frame.write_to(@socket)
+          @socket.flush
+
+          # Mark write as complete
+          @backpressure_manager.complete_write(frame_size.to_i64, stream_id)
+        rescue ex : IO::Error
+          # Socket closed, ignore write errors
+          @closed = true
           raise ex
         end
       end

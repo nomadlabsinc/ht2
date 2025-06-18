@@ -40,6 +40,17 @@ module HT2
       end
     end
 
+    # Zero-copy write for DATA frames without padding
+    def write_to(io : IO) : Nil
+      if @flags.padded?
+        # Must use regular serialization for padded frames
+        super
+      else
+        # Zero-copy for non-padded DATA frames
+        ZeroCopy.forward_data_frame(@data, @flags, io, @stream_id)
+      end
+    end
+
     def self.parse_payload(stream_id : UInt32, flags : FrameFlags, payload : Bytes) : DataFrame
       if stream_id == 0
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "DATA frame with stream ID 0")
