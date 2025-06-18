@@ -78,11 +78,44 @@ module HT2
       end
     end
 
+    def try_submit(task : Task, timeout : Time::Span = 50.milliseconds) : Bool
+      return false unless @running
+      try_send_with_timeout(task, timeout)
+    end
+
+    private def try_send_with_timeout(task : Task, timeout : Time::Span) : Bool
+      @queued_count.add(1)
+
+      select
+      when @queue.send(task)
+        true
+      when timeout(timeout)
+        @queued_count.sub(1)
+        false
+      end
+    rescue Channel::ClosedError
+      @queued_count.sub(1)
+      false
+    end
+
+    def can_accept? : Bool
+      @running && @queued_count.get < @queue_size
+    end
+
+    def utilization : Float64
+      return 0.0 unless @running
+      total_used = active_count.to_f + queue_depth.to_f
+      total_capacity = @max_workers.to_f + @queue_size.to_f
+      total_used / total_capacity
+    end
+
     def active_count : Int32
       @active_count.get
     end
 
     def queue_depth : Int32
+      # Queued count includes both active and waiting tasks
+      # So queue depth is total queued minus those actively being processed
       Math.max(0, @queued_count.get - @active_count.get)
     end
 

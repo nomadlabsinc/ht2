@@ -240,4 +240,134 @@ describe HT2::WorkerPool do
       pool.stop
     end
   end
+
+  describe "#try_submit" do
+    it "submits task with timeout" do
+      pool = HT2::WorkerPool.new(max_workers: 1, queue_size: 1)
+      pool.start
+
+      counter = Atomic(Int32).new(0)
+      done = Channel(Nil).new
+
+      # Submit task that completes quickly
+      result = pool.try_submit(-> {
+        counter.add(1)
+        done.send(nil)
+      })
+
+      result.should be_true
+      done.receive
+      counter.get.should eq 1
+
+      pool.stop
+    end
+
+    it "returns false when queue is full" do
+      pool = HT2::WorkerPool.new(max_workers: 1, queue_size: 1)
+      pool.start
+
+      # Block the worker and fill the queue
+      blocking = Channel(Nil).new
+      started = Channel(Nil).new
+
+      pool.submit(-> {
+        started.send(nil)
+        blocking.receive
+      })
+
+      started.receive
+      pool.submit(-> { }) # Fill the queue
+
+      # Try to submit with timeout should fail
+      result = pool.try_submit(-> { }, 50.milliseconds)
+      result.should be_false
+
+      # Unblock
+      blocking.send(nil)
+      pool.stop
+    end
+  end
+
+  describe "#can_accept?" do
+    it "returns true when queue has capacity" do
+      pool = HT2::WorkerPool.new(max_workers: 1, queue_size: 10)
+      pool.start
+
+      pool.can_accept?.should be_true
+
+      pool.stop
+    end
+
+    it "returns false when queue is full" do
+      pool = HT2::WorkerPool.new(max_workers: 1, queue_size: 1)
+      pool.start
+
+      # Block the worker and fill the queue
+      blocking = Channel(Nil).new
+      started = Channel(Nil).new
+
+      pool.submit(-> {
+        started.send(nil)
+        blocking.receive
+      })
+
+      started.receive
+      pool.submit(-> { }) # Fill the queue
+
+      pool.can_accept?.should be_false
+
+      # Unblock
+      blocking.send(nil)
+      pool.stop
+    end
+
+    it "returns false when pool is stopped" do
+      pool = HT2::WorkerPool.new
+      pool.can_accept?.should be_false
+    end
+  end
+
+  describe "#utilization" do
+    it "calculates utilization percentage" do
+      pool = HT2::WorkerPool.new(max_workers: 2, queue_size: 10)
+      pool.start
+
+      pool.utilization.should eq 0.0
+
+      # Add some tasks
+      blocking = Channel(Nil).new
+      started = Channel(Nil).new
+
+      2.times do
+        pool.submit(-> {
+          started.send(nil)
+          blocking.receive
+        })
+      end
+
+      2.times { started.receive }
+
+      # 2 active workers out of total capacity (2 + 10)
+      pool.utilization.should be_close(2.0/12.0, 0.01)
+
+      # Add queue items
+      2.times { pool.submit(-> { sleep 10.milliseconds }) }
+
+      # Give a moment for the queue to stabilize
+      sleep 5.milliseconds
+
+      # Should have 2 active + some queued out of total capacity
+      # The exact number depends on timing, but should be at least 2/12
+      pool.utilization.should be >= 2.0/12.0
+
+      # Unblock
+      2.times { blocking.send(nil) }
+      pool.stop
+    end
+
+    it "returns 0.0 when pool is not running" do
+      pool = HT2::WorkerPool.new
+      pool.utilization.should eq 0.0
+    end
+  end
 end

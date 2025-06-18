@@ -1,4 +1,5 @@
 require "./adaptive_flow_control"
+require "./backpressure"
 require "./frames"
 require "./hpack"
 require "./rapid_reset_protection"
@@ -22,6 +23,7 @@ module HT2
     getter? goaway_sent : Bool
     getter? goaway_received : Bool
     getter applied_settings : SettingsFrame::Settings
+    getter backpressure_manager : BackpressureManager
     getter? closed : Bool
 
     property on_headers : HeaderCallback?
@@ -115,6 +117,9 @@ module HT2
       @rapid_reset_protection = RapidResetProtection.new
       # Use client IP if provided, otherwise fall back to object-based ID
       @connection_id = client_ip || "#{@socket.class.name}:#{@socket.object_id}"
+
+      # Backpressure management
+      @backpressure_manager = BackpressureManager.new
     end
 
     def start : Nil
@@ -187,10 +192,25 @@ module HT2
     end
 
     def send_frame(frame : Frame) : Nil
+      frame_bytes = frame.to_bytes
+      stream_id = frame.stream_id > 0 ? frame.stream_id : nil
+
+      # Track write pressure before sending
+      @backpressure_manager.track_write(frame_bytes.size.to_i64, stream_id)
+
+      # Wait if backpressure is high
+      unless @backpressure_manager.wait_for_capacity
+        @backpressure_manager.complete_write(frame_bytes.size.to_i64, stream_id)
+        raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "Write buffer full")
+      end
+
       @write_mutex.synchronize do
         begin
-          @socket.write(frame.to_bytes)
+          @socket.write(frame_bytes)
           @socket.flush
+
+          # Mark write as complete
+          @backpressure_manager.complete_write(frame_bytes.size.to_i64, stream_id)
         rescue ex : IO::Error
           # Socket closed, ignore write errors
           @closed = true

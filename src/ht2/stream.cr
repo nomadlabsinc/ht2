@@ -73,6 +73,15 @@ module HT2
         raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "Data size exceeds connection window")
       end
 
+      # Check backpressure before sending
+      backpressure = @connection.backpressure_manager.stream_pressure(@id)
+      if backpressure > 0.9
+        # Wait for capacity with a reasonable timeout
+        unless @connection.backpressure_manager.wait_for_capacity(500.milliseconds)
+          raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR, "Stream backpressure timeout")
+        end
+      end
+
       flags = end_stream ? FrameFlags::END_STREAM : FrameFlags::None
       frame = DataFrame.new(@id, data, flags)
       @connection.send_frame(frame)
@@ -82,6 +91,45 @@ module HT2
 
       @end_stream_sent = true if end_stream
       update_state_after_data_sent(end_stream)
+    end
+
+    def send_data_chunked(data : Bytes, chunk_size : Int32 = 16_384, end_stream : Bool = false) : Nil
+      validate_send_data
+      send_chunks(chunk_size, data, end_stream)
+    end
+
+    private def send_chunks(chunk_size : Int32, data : Bytes, end_stream : Bool) : Nil
+      offset = 0
+      while offset < data.size
+        available = calculate_available_size(chunk_size)
+
+        if available <= 0
+          wait_for_window
+          next
+        end
+
+        offset = send_chunk(available, data, end_stream, offset)
+      end
+    end
+
+    private def calculate_available_size(chunk_size : Int32) : Int32
+      Math.min(
+        chunk_size,
+        @send_window_size.to_i32,
+        @connection.window_size.to_i32
+      )
+    end
+
+    private def wait_for_window : Nil
+      sleep 10.milliseconds
+    end
+
+    private def send_chunk(available : Int32, data : Bytes, end_stream : Bool, offset : Int32) : Int32
+      chunk_end = Math.min(offset + available, data.size)
+      chunk = data[offset...chunk_end]
+      is_last_chunk = chunk_end >= data.size
+      send_data(chunk, end_stream && is_last_chunk)
+      chunk_end
     end
 
     def send_rst_stream(error_code : ErrorCode) : Nil
