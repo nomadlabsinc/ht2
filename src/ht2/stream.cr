@@ -27,6 +27,10 @@ module HT2
     property? end_stream_sent : Bool
     property? end_stream_received : Bool
 
+    def received_data : Bytes
+      @data.to_slice
+    end
+
     def initialize(@connection : Connection, @id : UInt32, @state : StreamState = StreamState::IDLE)
       @send_window_size = connection.remote_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64
       @recv_window_size = connection.local_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64

@@ -7,6 +7,7 @@ require "./ht2/request"
 require "./ht2/response"
 require "./ht2/server"
 require "./ht2/stream"
+require "./ht2/client"
 
 module HT2
   VERSION = "0.1.0"
