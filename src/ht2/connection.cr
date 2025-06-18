@@ -22,6 +22,7 @@ module HT2
     getter? goaway_sent : Bool
     getter? goaway_received : Bool
     getter applied_settings : SettingsFrame::Settings
+    getter? closed : Bool
 
     property on_headers : HeaderCallback?
     property on_data : DataCallback?

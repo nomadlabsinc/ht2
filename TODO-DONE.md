@@ -154,3 +154,17 @@ This document tracks completed features and fixes with their corresponding commi
   - Added update_settings method for dynamic local settings updates
   - Support for pending settings with ACK timeout handling
   - Proper SETTINGS ACK queue management for concurrent updates
+
+## ✅ Connection Pooling & HTTP/2 Client
+
+- [x] **Implement HTTP/2 client with connection pooling** - Commit: TBD
+  - Full HTTP/2 client implementation supporting GET, POST, PUT, DELETE, HEAD methods
+  - Connection pooling with configurable limits per host
+  - Health validation and automatic removal of unhealthy connections
+  - Idle connection timeout and cleanup
+  - Connection warm-up for pre-establishing connections
+  - Graceful connection draining with stream completion waiting
+  - Thread-safe connection management with mutex protection
+  - Automatic retry with new connection on failure
+  - TLS support with ALPN negotiation verification
+  - Response handling with headers and body accumulation

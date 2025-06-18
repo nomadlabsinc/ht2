@@ -22,9 +22,9 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 ## 🚀 Performance Optimizations
 
 ### Connection Management
-- [ ] Implement connection pooling for client connections
-- [ ] Add connection warm-up (pre-established connections)
-- [ ] Implement graceful connection draining
+- [x] Implement connection pooling for client connections
+- [x] Add connection warm-up (pre-established connections)
+- [x] Implement graceful connection draining
 
 ### Stream Processing
 - [ ] Implement bounded worker pool for stream handling
