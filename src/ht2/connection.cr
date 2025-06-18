@@ -1,3 +1,4 @@
+require "./adaptive_buffer_manager"
 require "./adaptive_flow_control"
 require "./backpressure"
 require "./buffer_pool"
@@ -28,6 +29,7 @@ module HT2
     getter? goaway_received : Bool
     getter applied_settings : SettingsFrame::Settings
     getter backpressure_manager : BackpressureManager
+    getter adaptive_buffer_manager : AdaptiveBufferManager
     getter buffer_pool : BufferPool
     getter frame_cache : FrameCache
     getter? closed : Bool
@@ -94,7 +96,9 @@ module HT2
       @last_stream_id = @is_server ? 0_u32 : 1_u32
       @goaway_sent = false
       @goaway_received = false
-      @read_buffer = Bytes.new(16_384)
+      # Adaptive buffer management
+      @adaptive_buffer_manager = AdaptiveBufferManager.new
+      @read_buffer = Bytes.new(@adaptive_buffer_manager.recommended_read_buffer_size)
       @frame_buffer = IO::Memory.new
       @continuation_stream_id = nil
       @continuation_headers = IO::Memory.new
@@ -296,7 +300,7 @@ module HT2
     def send_frames(frames : Array(Frame)) : Nil
       return if frames.empty?
 
-      writer = MultiFrameWriter.new(@buffer_pool)
+      writer = MultiFrameWriter.new(@buffer_pool, @adaptive_buffer_manager)
       writer.add_frames(frames)
 
       @write_mutex.synchronize do
@@ -310,7 +314,7 @@ module HT2
     def send_prioritized_frames(frames : Array(MultiFrameWriter::PrioritizedFrame)) : Nil
       return if frames.empty?
 
-      writer = MultiFrameWriter.new(@buffer_pool)
+      writer = MultiFrameWriter.new(@buffer_pool, @adaptive_buffer_manager)
       writer.add_prioritized_frames(frames)
 
       @write_mutex.synchronize do
@@ -482,6 +486,9 @@ module HT2
           max_frame_size = @remote_settings[SettingsParameter::MAX_FRAME_SIZE]
           Security.validate_frame_size(length, max_frame_size)
 
+          # Track frame size for adaptive buffering
+          @adaptive_buffer_manager.record_frame_size(Frame::HEADER_SIZE + length)
+
           # Acquire buffer for full frame
           full_frame = @buffer_pool.acquire(Frame::HEADER_SIZE + length)
 
@@ -500,6 +507,14 @@ module HT2
           # Release buffers back to pool
           @buffer_pool.release(header_bytes)
           @buffer_pool.release(full_frame)
+
+          # Periodically adapt read buffer size
+          if @adaptive_buffer_manager.should_adapt?
+            new_size = @adaptive_buffer_manager.recommended_read_buffer_size
+            if new_size != @read_buffer.size
+              @read_buffer = Bytes.new(new_size)
+            end
+          end
         rescue ex : IO::Error
           break
         rescue ex : ConnectionError
