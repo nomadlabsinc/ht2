@@ -63,6 +63,9 @@ module HT2
     end
 
     private def handle_client(socket : TCPSocket)
+      # Extract client IP address
+      client_ip = socket.remote_address.address
+
       # Wrap with TLS if configured
       client_socket = if context = @tls_context
                         tls_socket = OpenSSL::SSL::Socket::Server.new(socket, context)
@@ -81,8 +84,8 @@ module HT2
         end
       end
 
-      # Create HTTP/2 connection
-      connection = Connection.new(client_socket, is_server: true)
+      # Create HTTP/2 connection with client IP
+      connection = Connection.new(client_socket, is_server: true, client_ip: client_ip)
       @connections << connection
 
       # Configure connection settings

@@ -11,10 +11,10 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 ## 🛡️ Security Issues
 
 ### Rapid Reset Attack (CVE-2023-44487)
-- [ ] Implement pending stream queue with configurable limits
-- [ ] Add per-IP rate limiting for stream creation
-- [ ] Track and limit rapid stream creation/cancellation patterns
-- [ ] Add metrics for monitoring rapid reset patterns
+- [x] Implement pending stream queue with configurable limits
+- [x] Add per-IP rate limiting for stream creation
+- [x] Track and limit rapid stream creation/cancellation patterns
+- [x] Add metrics for monitoring rapid reset patterns
 
 ## ⚙️ Configuration
 

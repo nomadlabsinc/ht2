@@ -58,7 +58,7 @@ module HT2
       end
     {% end %}
 
-    def initialize(@socket : IO, @is_server : Bool = true)
+    def initialize(@socket : IO, @is_server : Bool = true, client_ip : String? = nil)
       @streams = Hash(UInt32, Stream).new
       @local_settings = default_settings
       @remote_settings = default_settings
@@ -98,7 +98,8 @@ module HT2
 
       # Rapid reset protection
       @rapid_reset_protection = RapidResetProtection.new
-      @connection_id = "#{@socket.class.name}:#{@socket.object_id}"
+      # Use client IP if provided, otherwise fall back to object-based ID
+      @connection_id = client_ip || "#{@socket.class.name}:#{@socket.object_id}"
     end
 
     def start : Nil
