@@ -1,5 +1,6 @@
 require "openssl"
 require "./connection"
+require "./worker_pool"
 
 module HT2
   class Server
@@ -15,10 +16,13 @@ module HT2
     getter initial_window_size : UInt32
     getter max_frame_size : UInt32
     getter max_header_list_size : UInt32
+    getter max_workers : Int32
+    getter worker_queue_size : Int32
 
     @server : TCPServer?
     @running : Bool = false
     @connections : Set(Connection)
+    @worker_pool : WorkerPool
 
     def initialize(@host : String, @port : Int32, @handler : Handler,
                    @tls_context : OpenSSL::SSL::Context::Server? = nil,
@@ -27,8 +31,11 @@ module HT2
                    @max_concurrent_streams : UInt32 = DEFAULT_MAX_CONCURRENT_STREAMS,
                    @initial_window_size : UInt32 = DEFAULT_INITIAL_WINDOW_SIZE,
                    @max_frame_size : UInt32 = DEFAULT_MAX_FRAME_SIZE,
-                   @max_header_list_size : UInt32 = DEFAULT_MAX_HEADER_LIST_SIZE)
+                   @max_header_list_size : UInt32 = DEFAULT_MAX_HEADER_LIST_SIZE,
+                   @max_workers : Int32 = 100,
+                   @worker_queue_size : Int32 = 1000)
       @connections = Set(Connection).new
+      @worker_pool = WorkerPool.new(@max_workers, @worker_queue_size)
 
       # Configure ALPN for HTTP/2 if TLS is enabled
       if context = @tls_context
@@ -39,6 +46,7 @@ module HT2
     def listen : Nil
       @server = server = TCPServer.new(@host, @port)
       @running = true
+      @worker_pool.start
 
       puts "HTTP/2 server listening on #{@host}:#{@port}"
 
@@ -58,6 +66,7 @@ module HT2
 
     def close : Nil
       @running = false
+      @worker_pool.stop
       @server.try(&.close)
       @connections.each(&.close)
     end
@@ -102,7 +111,7 @@ module HT2
       connection.on_headers = ->(stream : Stream, _headers : Array(Tuple(String, String)), end_stream : Bool) do
         if end_stream || stream.request_headers
           # We have complete headers, process request
-          spawn handle_stream(connection, stream)
+          submit_stream_task(connection, stream)
         end
       end
 
@@ -110,7 +119,7 @@ module HT2
         # Data is accumulated in the stream
         if end_stream && stream.request_headers
           # Request is complete
-          spawn handle_stream(connection, stream)
+          submit_stream_task(connection, stream)
         end
       end
 
@@ -124,6 +133,24 @@ module HT2
         client_socket.close if client_socket
       rescue ex : OpenSSL::SSL::Error | IO::Error
         # Socket already closed, ignore
+      end
+    end
+
+    private def submit_stream_task(connection : Connection, stream : Stream) : Nil
+      task = -> { handle_stream(connection, stream) }
+
+      unless @worker_pool.submit?(task)
+        # Worker pool is full, send 503 Service Unavailable
+        begin
+          response = Response.new(stream)
+          response.status = 503
+          response.headers["content-type"] = "text/plain"
+          response.headers["retry-after"] = "5"
+          response.write("Service temporarily unavailable".to_slice)
+          response.close
+        rescue
+          # Best effort, ignore errors
+        end
       end
     end
 
@@ -152,6 +179,15 @@ module HT2
       rescue
         # Best effort, ignore errors
       end
+    end
+
+    # Worker pool monitoring
+    def worker_pool_active_count : Int32
+      @worker_pool.active_count
+    end
+
+    def worker_pool_queue_depth : Int32
+      @worker_pool.queue_depth
     end
 
     # Helper method to create TLS context with HTTP/2 support
