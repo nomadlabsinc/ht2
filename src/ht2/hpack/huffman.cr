@@ -4,14 +4,16 @@ module HT2
       extend self
 
       # Encode string using Huffman encoding
-      def encode(data : String) : Bytes
-        encode(data.to_slice)
+      def encode(data : String, output : IO::Memory? = nil) : Bytes
+        encode(data.to_slice, output)
       end
 
-      def encode(data : Bytes) : Bytes
+      def encode(data : Bytes, output : IO::Memory? = nil) : Bytes
         bits = 0_u64
         bit_count = 0
-        output = IO::Memory.new
+        owned_output = output.nil?
+        output ||= IO::Memory.new
+        start_pos = output.pos
 
         data.each do |byte|
           code, length = HUFFMAN_TABLE[byte.to_i]
@@ -32,7 +34,12 @@ module HT2
           output.write_byte(bits.to_u8)
         end
 
-        output.to_slice
+        if owned_output
+          output.to_slice
+        else
+          # Return just the written portion
+          output.to_slice[start_pos, output.pos - start_pos]
+        end
       end
 
       # Decode Huffman encoded data

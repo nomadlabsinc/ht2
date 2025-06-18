@@ -53,6 +53,8 @@ class MockConnection < HT2::Connection
     @rapid_reset_protection = HT2::RapidResetProtection.new
     @connection_id = "mock-connection"
     @backpressure_manager = HT2::BackpressureManager.new
+    @buffer_pool = HT2::BufferPool.new
+    @frame_cache = HT2::FrameCache.new
   end
 
   def send_frame(frame : HT2::Frame) : Nil

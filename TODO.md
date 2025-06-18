@@ -29,7 +29,7 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 ### Stream Processing
 - [x] Implement bounded worker pool for stream handling
 - [x] Add backpressure mechanisms for slow consumers
-- [ ] Optimize memory allocation for frame processing
+- [x] Optimize memory allocation for frame processing
 
 ### I/O Optimizations
 - [ ] Implement zero-copy frame forwarding where possible

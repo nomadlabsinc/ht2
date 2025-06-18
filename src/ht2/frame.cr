@@ -1,3 +1,5 @@
+require "./buffer_pool"
+
 module HT2
   # Base frame structure for HTTP/2
   abstract class Frame
@@ -17,7 +19,7 @@ module HT2
     abstract def payload : Bytes
 
     # Serialize frame to bytes
-    def to_bytes : Bytes
+    def to_bytes(buffer_pool : BufferPool? = nil) : Bytes
       payload_bytes = payload
       @length = payload_bytes.size.to_u32
 
@@ -25,7 +27,8 @@ module HT2
         raise ProtocolError.new("Frame payload too large: #{@length}")
       end
 
-      bytes = Bytes.new(HEADER_SIZE + payload_bytes.size)
+      total_size = HEADER_SIZE + payload_bytes.size
+      bytes = buffer_pool ? buffer_pool.acquire(total_size) : Bytes.new(total_size)
 
       # Length (24 bits)
       bytes[0] = ((@length >> 16) & 0xFF).to_u8
