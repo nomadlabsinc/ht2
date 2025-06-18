@@ -27,7 +27,7 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 - [x] Implement graceful connection draining
 
 ### Stream Processing
-- [ ] Implement bounded worker pool for stream handling
+- [x] Implement bounded worker pool for stream handling
 - [ ] Add backpressure mechanisms for slow consumers
 - [ ] Optimize memory allocation for frame processing
 
