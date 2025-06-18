@@ -4,9 +4,11 @@ require "./buffer_pool"
 require "./frame_cache"
 require "./frames"
 require "./hpack"
+require "./multi_frame_writer"
 require "./rapid_reset_protection"
 require "./security"
 require "./stream"
+require "./vectored_io"
 
 module HT2
   class Connection
@@ -287,6 +289,90 @@ module HT2
           @closed = true
           raise ex
         end
+      end
+    end
+
+    # Send multiple frames efficiently using batched I/O
+    def send_frames(frames : Array(Frame)) : Nil
+      return if frames.empty?
+
+      writer = MultiFrameWriter.new(@buffer_pool)
+      writer.add_frames(frames)
+
+      @write_mutex.synchronize do
+        writer.flush_to(@socket)
+      end
+
+      writer.release
+    end
+
+    # Send prioritized frames in priority order
+    def send_prioritized_frames(frames : Array(MultiFrameWriter::PrioritizedFrame)) : Nil
+      return if frames.empty?
+
+      writer = MultiFrameWriter.new(@buffer_pool)
+      writer.add_prioritized_frames(frames)
+
+      @write_mutex.synchronize do
+        writer.flush_to(@socket)
+      end
+
+      writer.release
+    end
+
+    # Send multiple DATA frames from the same stream efficiently
+    def send_data_frames(stream_id : UInt32, data_chunks : Array(Bytes), end_stream : Bool = false) : Nil
+      return if data_chunks.empty?
+
+      # Calculate total size for flow control
+      total_size = data_chunks.sum(&.size)
+      stream = @streams[stream_id]?
+      raise StreamError.new(stream_id, ErrorCode::STREAM_CLOSED, "Stream not found") unless stream
+
+      # Check flow control
+      if total_size > stream.send_window_size
+        raise StreamError.new(stream_id, ErrorCode::FLOW_CONTROL_ERROR, "Data size exceeds stream window")
+      end
+
+      if total_size > @window_size
+        raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "Data size exceeds connection window")
+      end
+
+      # Track write pressure
+      @backpressure_manager.track_write(total_size.to_i64, stream_id)
+
+      # Wait if backpressure is high
+      unless @backpressure_manager.wait_for_capacity
+        @backpressure_manager.complete_write(total_size.to_i64, stream_id)
+        raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "Write buffer full")
+      end
+
+      @write_mutex.synchronize do
+        begin
+          MultiFrameWriter.write_data_frames(@socket, stream_id, data_chunks, end_stream)
+
+          # Update flow control windows
+          stream.send_window_size -= total_size
+          @window_size -= total_size
+
+          # Mark write as complete
+          @backpressure_manager.complete_write(total_size.to_i64, stream_id)
+        rescue ex : IO::Error
+          @closed = true
+          raise ex
+        end
+      end
+    end
+
+    # Send multiple frames using direct vectored I/O without buffering
+    # This is most efficient when frames are already serialized or when
+    # sending many small frames that would benefit from atomic writes
+    def send_frames_vectored(frames : Array(Frame)) : Nil
+      return if frames.empty?
+      return send_frames(frames) unless @socket.is_a?(IO::FileDescriptor)
+
+      @write_mutex.synchronize do
+        VectoredIO.write_frames(@socket.as(IO::FileDescriptor), frames, @buffer_pool)
       end
     end
 
