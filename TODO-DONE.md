@@ -171,7 +171,7 @@ This document tracks completed features and fixes with their corresponding commi
 
 ## ✅ Performance - Stream Processing
 
-- [x] **Implement bounded worker pool for stream handling** - Current Branch
+- [x] **Implement bounded worker pool for stream handling** - Commit: aa3e9e1
   - Created WorkerPool class with configurable max workers and queue size
   - Prevents unbounded fiber creation and provides backpressure
   - Integrated into Server to handle stream processing with concurrency limits
@@ -180,3 +180,12 @@ This document tracks completed features and fixes with their corresponding commi
   - Graceful shutdown waits for all tasks to complete
   - Thread-safe with atomic counters and mutex protection
   - Comprehensive test coverage for all functionality
+
+- [x] **Add backpressure mechanisms for slow consumers** - Current Branch
+  - Created BackpressureManager class to track write pressure at connection and stream levels
+  - Implemented high/low watermark system for automatic pause/resume of writes
+  - Added per-stream pressure tracking with 1/4 of total buffer allocation per stream
+  - Integrated backpressure checks into Connection#send_frame with timeout support
+  - Added chunked data sending support in Stream for large payloads
+  - Enhanced WorkerPool with try_submit, can_accept?, and utilization methods
+  - Comprehensive test coverage for all backpressure scenarios

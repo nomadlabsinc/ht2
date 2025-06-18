@@ -139,7 +139,8 @@ module HT2
     private def submit_stream_task(connection : Connection, stream : Stream) : Nil
       task = -> { handle_stream(connection, stream) }
 
-      unless @worker_pool.submit?(task)
+      # Try to submit with a timeout to handle backpressure
+      unless @worker_pool.try_submit(task, 100.milliseconds)
         # Worker pool is full, send 503 Service Unavailable
         begin
           response = Response.new(stream)
