@@ -51,6 +51,10 @@ module HT2
       @response_headers = headers
       header_block = @connection.hpack_encoder.encode(headers)
 
+      # max_frame_size = @connection.remote_settings[SettingsParameter::MAX_FRAME_SIZE]
+
+      # Always use single HEADERS frame for now
+      # The connection layer will handle splitting if needed
       flags = FrameFlags::END_HEADERS
       flags = flags | FrameFlags::END_STREAM if end_stream
 
@@ -130,6 +134,17 @@ module HT2
       is_last_chunk = chunk_end >= data.size
       send_data(chunk, end_stream && is_last_chunk)
       chunk_end
+    end
+
+    # Send data using multiple frames efficiently
+    def send_data_multi(chunks : Array(Bytes), end_stream : Bool = false) : Nil
+      validate_send_data
+
+      # Use connection's multi-frame method for efficiency
+      @connection.send_data_frames(@id, chunks, end_stream)
+
+      @end_stream_sent = true if end_stream
+      update_state_after_data_sent(end_stream)
     end
 
     def send_rst_stream(error_code : ErrorCode) : Nil

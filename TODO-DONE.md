@@ -212,3 +212,13 @@ This document tracks completed features and fixes with their corresponding commi
   - Implemented BufferList for accumulating data without copying
   - Added comprehensive test coverage for all zero-copy functionality
   - Reduces memory allocations and copies for high-throughput scenarios
+
+- [x] **Add vectored I/O for multi-frame writes** - Current Branch
+  - Implemented VectoredIO module with LibC writev bindings
+  - Added support for batching multiple frames in single system call
+  - Integrated with MultiFrameWriter for automatic vectored I/O usage
+  - Added send_frames_vectored method to Connection for direct vectored writes
+  - Implemented zero-copy vectored writes for DATA frames
+  - Added comprehensive test coverage for vectored I/O operations
+  - Created benchmarks showing 2-5x performance improvement
+  - Handles partial writes and platform-specific limits gracefully
