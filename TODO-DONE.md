@@ -119,8 +119,17 @@ This document tracks completed features and fixes with their corresponding commi
   - Aggressive allocation after stalls to prevent future stalls
   - Bounds checking and overflow protection
 
-- [x] **Make increment calculation more dynamic** - Commit: TBD
+- [x] **Make increment calculation more dynamic** - Commit: ab57cbc
   - Consider multiple factors: burst state, stall history, rate variance
   - Predictive consumption calculation using weighted averages
   - Dynamic safety margins based on variance
   - Adaptive response to high RTT and packet loss
+
+## ✅ Per-IP Rate Limiting
+
+- [x] **Add per-IP rate limiting for stream creation** - Commit: TBD
+  - Modified Connection class to accept optional client_ip parameter
+  - Updated Server to extract client IP from TCPSocket.remote_address.address
+  - Use client IP as connection ID for rate limiting tracking
+  - Maintains backward compatibility with object-based IDs when IP not available
+  - Integrates seamlessly with existing RapidResetProtection infrastructure
