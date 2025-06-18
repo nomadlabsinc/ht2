@@ -127,9 +127,30 @@ This document tracks completed features and fixes with their corresponding commi
 
 ## ✅ Per-IP Rate Limiting
 
-- [x] **Add per-IP rate limiting for stream creation** - Commit: TBD
+- [x] **Add per-IP rate limiting for stream creation** - Commit: ff3fd09
   - Modified Connection class to accept optional client_ip parameter
   - Updated Server to extract client IP from TCPSocket.remote_address.address
   - Use client IP as connection ID for rate limiting tracking
   - Maintains backward compatibility with object-based IDs when IP not available
   - Integrates seamlessly with existing RapidResetProtection infrastructure
+
+## ✅ Dynamic Settings Updates
+
+- [x] **Implement graceful handling of SETTINGS changes mid-connection** - Current Branch
+  - Added apply_remote_settings method to validate and apply settings atomically
+  - Implement proper error handling with GOAWAY on invalid settings
+  - Added overflow protection for INITIAL_WINDOW_SIZE updates
+  - Track applied settings for feedback and debugging
+
+- [x] **Add validation for settings value ranges** - Current Branch
+  - Centralized validation in validate_setting method
+  - Validate ENABLE_PUSH (0 or 1)
+  - Validate INITIAL_WINDOW_SIZE (max 0x7FFFFFFF)
+  - Validate MAX_FRAME_SIZE (16384-16777215)
+  - Proper error codes for each validation failure
+
+- [x] **Implement settings negotiation feedback** - Current Branch
+  - Added applied_settings tracking to monitor what settings were successfully applied
+  - Added update_settings method for dynamic local settings updates
+  - Support for pending settings with ACK timeout handling
+  - Proper SETTINGS ACK queue management for concurrent updates

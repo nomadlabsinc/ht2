@@ -21,6 +21,7 @@ module HT2
     getter last_stream_id : UInt32
     getter? goaway_sent : Bool
     getter? goaway_received : Bool
+    getter applied_settings : SettingsFrame::Settings
 
     property on_headers : HeaderCallback?
     property on_data : DataCallback?
@@ -56,12 +57,25 @@ module HT2
       def test_handle_priority_frame(frame : PriorityFrame) : Nil
         handle_priority_frame(frame)
       end
+
+      def test_handle_settings_frame(frame : SettingsFrame) : Nil
+        handle_settings_frame(frame)
+      end
+
+      def test_validate_setting(param : SettingsParameter, value : UInt32) : Nil
+        validate_setting(param, value)
+      end
+
+      def test_apply_remote_settings(settings : SettingsFrame::Settings) : Nil
+        apply_remote_settings(settings)
+      end
     {% end %}
 
     def initialize(@socket : IO, @is_server : Bool = true, client_ip : String? = nil)
       @streams = Hash(UInt32, Stream).new
       @local_settings = default_settings
       @remote_settings = default_settings
+      @applied_settings = SettingsFrame::Settings.new
       @hpack_encoder = HPACK::Encoder.new(@local_settings[SettingsParameter::HEADER_TABLE_SIZE])
       @hpack_decoder = HPACK::Decoder.new(
         @remote_settings[SettingsParameter::HEADER_TABLE_SIZE],
@@ -192,6 +206,58 @@ module HT2
       send_frame(frame)
     end
 
+    def update_settings(settings : SettingsFrame::Settings) : Channel(Nil)
+      validate_all_settings(settings)
+      apply_local_settings(settings)
+      send_settings_with_ack_timeout(settings)
+    end
+
+    private def validate_all_settings(settings : SettingsFrame::Settings) : Nil
+      settings.each do |param, value|
+        validate_setting(param, value)
+      end
+    end
+
+    private def apply_local_settings(settings : SettingsFrame::Settings) : Nil
+      settings.each do |param, value|
+        @local_settings[param] = value
+        apply_local_setting(param, value)
+      end
+    end
+
+    private def apply_local_setting(param : SettingsParameter, value : UInt32) : Nil
+      case param
+      when SettingsParameter::HEADER_TABLE_SIZE
+        @hpack_encoder.update_dynamic_table_size(value)
+      when SettingsParameter::MAX_HEADER_LIST_SIZE
+        @hpack_decoder.max_headers_size = value
+      when SettingsParameter::INITIAL_WINDOW_SIZE
+        # This affects new streams only, existing streams keep their windows
+      end
+    end
+
+    private def send_settings_with_ack_timeout(settings : SettingsFrame::Settings) : Channel(Nil)
+      ack_channel = Channel(Nil).new
+      @pending_settings << ack_channel
+
+      send_frame(SettingsFrame.new(settings: settings))
+
+      spawn { wait_for_settings_ack(ack_channel) }
+
+      ack_channel
+    end
+
+    private def wait_for_settings_ack(ack_channel : Channel(Nil)) : Nil
+      select
+      when ack_channel.receive
+        # ACK received
+      when timeout(HT2::SETTINGS_ACK_TIMEOUT)
+        @pending_settings.delete(ack_channel)
+        send_goaway(ErrorCode::SETTINGS_TIMEOUT, "Settings acknowledgment timeout")
+        close
+      end
+    end
+
     def ping(data : Bytes? = nil) : Channel(Nil)
       data ||= Random::Secure.random_bytes(8)
       channel = Channel(Nil).new
@@ -201,44 +267,6 @@ module HT2
       send_frame(frame)
 
       channel
-    end
-
-    def update_settings(settings : SettingsFrame::Settings) : Channel(Nil)
-      @local_settings.merge!(settings)
-
-      # Update HPACK table size if changed
-      if table_size = settings[SettingsParameter::HEADER_TABLE_SIZE]?
-        @hpack_encoder.max_table_size = table_size
-      end
-
-      # Update max header list size if changed
-      if max_headers = settings[SettingsParameter::MAX_HEADER_LIST_SIZE]?
-        @hpack_decoder.max_headers_size = max_headers
-      end
-
-      # Create a new channel for this specific settings update
-      ack_channel = Channel(Nil).new
-      @pending_settings << ack_channel
-
-      frame = SettingsFrame.new(settings: settings)
-      send_frame(frame)
-
-      # Add timeout handling
-      spawn do
-        select
-        when ack_channel.receive
-          # Settings acknowledged
-        when timeout(HT2::SETTINGS_ACK_TIMEOUT)
-          # Timeout waiting for SETTINGS ACK
-          @pending_settings.delete(ack_channel)
-          unless @closed
-            send_goaway(ErrorCode::SETTINGS_TIMEOUT, "Settings acknowledgment timeout")
-            close
-          end
-        end
-      end
-
-      ack_channel
     end
 
     def consume_window(size : Int32) : Nil
@@ -491,22 +519,17 @@ module HT2
         unless @settings_rate_limiter.check
           raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "SETTINGS flood detected")
         end
-        # Apply remote settings
-        frame.settings.each do |param, value|
-          @remote_settings[param] = value
 
-          case param
-          when SettingsParameter::HEADER_TABLE_SIZE
-            @hpack_decoder.max_dynamic_table_size = value
-          when SettingsParameter::INITIAL_WINDOW_SIZE
-            # Update all stream windows
-            diff = value.to_i64 - @remote_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64
-            @streams.each_value { |stream| stream.send_window_size += diff }
-          end
+        # Validate and apply remote settings
+        begin
+          apply_remote_settings(frame.settings)
+          # Send ACK only if all settings were successfully applied
+          send_frame(SettingsFrame.new(FrameFlags::ACK))
+        rescue ex : ConnectionError
+          # Settings validation failed - send GOAWAY
+          send_goaway(ex.code, ex.message || "")
+          raise ex
         end
-
-        # Send ACK
-        send_frame(SettingsFrame.new(FrameFlags::ACK))
       end
     end
 
@@ -580,6 +603,68 @@ module HT2
 
     private def get_stream(stream_id : UInt32) : Stream
       @streams[stream_id] || raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Unknown stream #{stream_id}")
+    end
+
+    private def apply_remote_settings(settings : SettingsFrame::Settings) : Nil
+      settings.each do |param, value|
+        validate_setting(param, value)
+        apply_single_setting(param, value)
+        @remote_settings[param] = value
+        @applied_settings[param] = value
+      end
+    end
+
+    private def apply_single_setting(param : SettingsParameter, value : UInt32) : Nil
+      case param
+      when SettingsParameter::HEADER_TABLE_SIZE
+        @hpack_encoder.update_dynamic_table_size(value)
+      when SettingsParameter::INITIAL_WINDOW_SIZE
+        update_stream_windows(value)
+      when SettingsParameter::MAX_HEADER_LIST_SIZE
+        @hpack_decoder.max_headers_size = value
+      when SettingsParameter::MAX_FRAME_SIZE
+        # Will be used for future frame writes
+      when SettingsParameter::MAX_CONCURRENT_STREAMS
+        # Just prevent new streams from being created
+      when SettingsParameter::ENABLE_PUSH
+        # No immediate action needed
+      end
+    end
+
+    private def update_stream_windows(new_initial_window : UInt32) : Nil
+      old_value = @remote_settings[SettingsParameter::INITIAL_WINDOW_SIZE]? || DEFAULT_INITIAL_WINDOW_SIZE
+      diff = new_initial_window.to_i64 - old_value.to_i64
+
+      @streams.each_value do |stream|
+        new_window = stream.send_window_size.to_i64 + diff
+        if new_window > Security::MAX_WINDOW_SIZE || new_window < 0
+          raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "Window size overflow on stream #{stream.id}")
+        end
+        stream.send_window_size = new_window.to_i32
+      end
+    end
+
+    private def validate_setting(param : SettingsParameter, value : UInt32) : Nil
+      case param
+      when SettingsParameter::ENABLE_PUSH
+        if value > 1
+          raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "ENABLE_PUSH must be 0 or 1")
+        end
+      when SettingsParameter::INITIAL_WINDOW_SIZE
+        if value > 0x7FFFFFFF
+          raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "INITIAL_WINDOW_SIZE too large")
+        end
+      when SettingsParameter::MAX_FRAME_SIZE
+        if value < 16_384 || value > 16_777_215
+          raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "MAX_FRAME_SIZE out of range")
+        end
+      when SettingsParameter::MAX_CONCURRENT_STREAMS
+        # No specific validation, 0 means unlimited
+      when SettingsParameter::HEADER_TABLE_SIZE
+        # No specific max defined in RFC
+      when SettingsParameter::MAX_HEADER_LIST_SIZE
+        # No specific validation, implementation defined
+      end
     end
 
     private def get_or_create_stream(stream_id : UInt32) : Stream

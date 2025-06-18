@@ -18,10 +18,6 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 
 ## ⚙️ Configuration
 
-### Dynamic Settings Updates
-- [ ] Implement graceful handling of SETTINGS changes mid-connection
-- [ ] Add validation for settings value ranges
-- [ ] Implement settings negotiation feedback
 
 ## 🚀 Performance Optimizations
 

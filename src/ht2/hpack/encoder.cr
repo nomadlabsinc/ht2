@@ -35,6 +35,10 @@ module HT2
         evict_entries
       end
 
+      def update_dynamic_table_size(size : UInt32) : Nil
+        self.max_table_size = size
+      end
+
       private def encode_header(io : IO, name : String, value : String)
         # Try to find in combined table (static + dynamic)
         index = find_header(name, value)
