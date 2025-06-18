@@ -22,6 +22,7 @@ class MockConnection < HT2::Connection
     @remote_settings[HT2::SettingsParameter::MAX_CONCURRENT_STREAMS] = 100_u32
     @remote_settings[HT2::SettingsParameter::MAX_FRAME_SIZE] = 16384_u32
     @remote_settings[HT2::SettingsParameter::MAX_HEADER_LIST_SIZE] = 8192_u32
+    @applied_settings = HT2::SettingsFrame::Settings.new
     @hpack_encoder = HT2::HPACK::Encoder.new
     @hpack_decoder = HT2::HPACK::Decoder.new(HT2::DEFAULT_HEADER_TABLE_SIZE, HT2::Security::MAX_HEADER_LIST_SIZE)
     @window_size = 65535_i64
