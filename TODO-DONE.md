@@ -190,7 +190,7 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
 
 ## ✅ Monitoring & Observability
 
-- [x] **Add debug mode with frame logging** - Current Branch
+- [x] **Add debug mode with frame logging** - Commit: 5923125
   - Created DebugMode class with configurable frame logging
   - Support for inbound and outbound frame logging
   - Frame-specific formatting with all relevant details
@@ -201,3 +201,14 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
   - Added frame logging to Connection class
   - Logs both parsed frames and raw bytes
   - Thread-safe logging implementation
+
+- [x] **Implement connection state dumping** - Current Branch
+  - Created comprehensive dump_state method in Connection class
+  - Dumps complete connection state including settings, streams, flow control
+  - Shows HPACK table sizes and dynamic table usage
+  - Displays buffer pool statistics and backpressure levels
+  - Includes security metrics and rapid reset protection status
+  - Formatted output with clear sections for debugging
+  - Helper methods for status formatting and stream state details
+  - Integration with existing metrics and monitoring systems
+  - Useful for troubleshooting connection issues and performance analysis
