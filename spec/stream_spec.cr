@@ -56,6 +56,7 @@ class MockConnection < HT2::Connection
     @adaptive_buffer_manager = HT2::AdaptiveBufferManager.new
     @buffer_pool = HT2::BufferPool.new
     @frame_cache = HT2::FrameCache.new
+    @metrics = HT2::ConnectionMetrics.new
   end
 
   def send_frame(frame : HT2::Frame) : Nil
