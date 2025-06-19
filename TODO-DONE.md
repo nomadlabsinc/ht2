@@ -229,7 +229,7 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
 
 ## ✅ RFC Compliance and Architecture
 
-- [x] **Stream state machine refactoring** - Commit: <current>
+- [x] **Stream state machine refactoring** - Commit: 9b42cca
   - Created formal StreamStateMachine class with explicit state transitions
   - Defined all valid state transitions according to RFC 9113
   - Centralized state transition logic with event-based design
@@ -240,3 +240,17 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
   - Warning generation for likely trailer scenarios
   - Thread-safe state transitions
   - Extensive test coverage for all state transitions
+
+## ✅ Documentation
+
+- [x] **Document all public APIs with examples** - Commit: <current>
+  - Created comprehensive API reference documentation (docs/API_REFERENCE.md)
+  - Documented all major public-facing classes and modules
+  - Added complete method signatures with parameter and return types
+  - Provided usage examples for all key functionality
+  - Included sections on: Server API, Client API, Request/Response, Error Handling
+  - Added advanced features documentation: Server Push, Stream Priority, HPACK
+  - Created performance tuning guide with buffer pool and flow control configuration
+  - Added monitoring and metrics documentation with examples
+  - Included best practices section for common patterns
+  - Comprehensive error handling examples and patterns

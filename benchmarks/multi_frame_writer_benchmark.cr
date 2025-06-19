@@ -25,12 +25,12 @@ def create_test_frames(count : Int32) : Array(HT2::Frame)
     when 0
       frames << HT2::DataFrame.new((i % 100 + 1).to_u32, "Test data #{i}".to_slice)
     when 1
-      frames << HT2::WindowUpdateFrame.new(0_u32, 65535_u32)
+      frames << HT2::WindowUpdateFrame.new(0_u32, 65_535_u32)
     when 2
       frames << HT2::PingFrame.new(Bytes.new(8, i.to_u8))
     when 3
       settings = HT2::SettingsFrame::Settings.new
-      settings[HT2::SettingsParameter::INITIAL_WINDOW_SIZE] = 65535_u32
+      settings[HT2::SettingsParameter::INITIAL_WINDOW_SIZE] = 65_535_u32
       frames << HT2::SettingsFrame.new(settings: settings)
     else
       frames << HT2::RstStreamFrame.new((i % 100 + 1).to_u32, HT2::ErrorCode::NO_ERROR)

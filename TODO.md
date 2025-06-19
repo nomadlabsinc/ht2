@@ -18,6 +18,42 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 
 ## ⚙️ Configuration
 
+### HTTP/2 Clear Text (h2c) Support for Proxy Deployments
+- [ ] Implement HTTP/2 prior knowledge (h2c) support for TLS-terminating proxies
+  - [ ] Add h2c connection detection in Server#handle_client
+  - [ ] Implement HTTP/1.1 Upgrade mechanism (RFC 7540 Section 3.2)
+    - [ ] Parse HTTP/1.1 Upgrade request headers
+    - [ ] Validate required headers: `Upgrade: h2c`, `HTTP2-Settings`
+    - [ ] Decode base64url-encoded SETTINGS payload from HTTP2-Settings header
+    - [ ] Send HTTP/1.1 101 Switching Protocols response
+    - [ ] Include required response headers: `Connection: Upgrade`, `Upgrade: h2c`
+  - [ ] Support direct HTTP/2 prior knowledge (RFC 7540 Section 3.4)
+    - [ ] Detect HTTP/2 connection preface without TLS
+    - [ ] Skip HTTP/1.1 upgrade for prior knowledge connections
+  - [ ] Add Server configuration option for h2c mode
+    - [ ] Add `enable_h2c : Bool` parameter to Server constructor
+    - [ ] Add `h2c_upgrade_timeout : Time::Span` for upgrade timeout
+  - [ ] Update connection initialization for h2c
+    - [ ] Skip ALPN validation for h2c connections
+    - [ ] Apply SETTINGS from HTTP2-Settings header if present
+  - [ ] Add h2c-specific error handling
+    - [ ] Handle malformed upgrade requests
+    - [ ] Implement upgrade timeout handling
+    - [ ] Add appropriate error responses (400, 505)
+  - [ ] Create h2c integration tests
+    - [ ] Test HTTP/1.1 Upgrade flow
+    - [ ] Test direct prior knowledge connections
+    - [ ] Test with common reverse proxies (NGINX, HAProxy)
+    - [ ] Test error cases and timeouts
+  - [ ] Add h2c examples and documentation
+    - [ ] Example: Basic h2c server configuration
+    - [ ] Example: NGINX reverse proxy with h2c backend
+    - [ ] Example: HAProxy configuration for h2c
+    - [ ] Document security considerations for h2c
+  - [ ] Update client to support h2c
+    - [ ] Add h2c upgrade support in Client
+    - [ ] Auto-detect h2c capability
+    - [ ] Cache h2c support per host
 
 ## 🚀 Performance Optimizations
 
@@ -52,7 +88,7 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 ## 📚 Documentation
 
 ### API Documentation
-- [ ] Document all public APIs with examples
+- [x] Document all public APIs with examples
 - [ ] Add integration guide for web frameworks
 - [ ] Create migration guide from Crystal's HTTP::Server
 
