@@ -93,6 +93,15 @@ module HT2
       @send_window_size -= data.size
       @connection.consume_window(data.size)
 
+      # Record flow control stall if window is exhausted
+      if @send_window_size <= 0
+        @connection.stream_lifecycle_tracer.record_event(
+          StreamLifecycleTracer::EventType::FLOW_CONTROL_STALL,
+          @id,
+          "Send window exhausted"
+        )
+      end
+
       @end_stream_sent = true if end_stream
       update_state_after_data_sent(end_stream)
     end
@@ -128,8 +137,7 @@ module HT2
 
     private def calculate_available_size(chunk_size : Int32) : Int32
       Math.min(
-        chunk_size,
-        @send_window_size.to_i32,
+        Math.min(chunk_size, @send_window_size.to_i32),
         @connection.window_size.to_i32
       )
     end
@@ -162,11 +170,36 @@ module HT2
         return
       end
 
+      previous_state = @state
+
       frame = RstStreamFrame.new(@id, error_code)
       @connection.send_frame(frame)
       @state = StreamState::CLOSED
       @closed_at = Time.utc
       @connection.metrics.record_stream_closed
+
+      # Record RST_STREAM sent event
+      @connection.stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::RST_SENT,
+        @id,
+        "RST_STREAM sent with #{error_code}"
+      )
+
+      # Record state change to CLOSED
+      @connection.stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::STATE_CHANGE,
+        @id,
+        "Stream reset with #{error_code}",
+        previous_state,
+        @state
+      )
+
+      # Record stream closed
+      @connection.stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::CLOSED,
+        @id,
+        "Stream closed by RST_STREAM"
+      )
     end
 
     def receive_headers(headers : Array(Tuple(String, String)), end_stream : Bool, priority : Bool = false) : Nil
@@ -197,12 +230,26 @@ module HT2
             frame = WindowUpdateFrame.new(@id, increment.to_u32)
             @connection.send_frame(frame)
             @recv_window_size += increment
+
+            # Record window update sent event
+            @connection.stream_lifecycle_tracer.record_event(
+              StreamLifecycleTracer::EventType::WINDOW_UPDATE_SENT,
+              @id,
+              "Window update sent: increment=#{increment}, new_window=#{@recv_window_size}"
+            )
           end
         end
 
         # Record stall if window is exhausted
         if @recv_window_size <= 0
           @flow_controller.record_stall
+
+          # Record flow control stall event
+          @connection.stream_lifecycle_tracer.record_event(
+            StreamLifecycleTracer::EventType::FLOW_CONTROL_STALL,
+            @id,
+            "Receive window exhausted"
+          )
         end
       end
 
@@ -224,6 +271,13 @@ module HT2
       end
 
       @send_window_size = new_window
+
+      # Record window update received event
+      @connection.stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::WINDOW_UPDATE_RECEIVED,
+        @id,
+        "Send window updated by #{increment} to #{new_window}"
+      )
     end
 
     def update_recv_window(increment : Int32) : Nil
@@ -251,9 +305,36 @@ module HT2
     end
 
     def receive_rst_stream(error_code : ErrorCode) : Nil
+      previous_state = @state
+
       @state = StreamState::CLOSED
       @closed_at = Time.utc
       @connection.metrics.record_stream_closed
+
+      # Record RST_STREAM received event
+      @connection.stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::RST_RECEIVED,
+        @id,
+        "RST_STREAM received with #{error_code}"
+      )
+
+      # Record state change to CLOSED
+      if previous_state != @state
+        @connection.stream_lifecycle_tracer.record_event(
+          StreamLifecycleTracer::EventType::STATE_CHANGE,
+          @id,
+          "Stream reset by peer with #{error_code}",
+          previous_state,
+          @state
+        )
+      end
+
+      # Record stream closed
+      @connection.stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::CLOSED,
+        @id,
+        "Stream closed by RST_STREAM from peer"
+      )
     end
 
     def receive_priority(priority : PriorityData) : Nil
@@ -267,6 +348,17 @@ module HT2
         return if elapsed > 2.seconds
       end
       @priority = priority
+
+      # Record priority update event
+      @connection.stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::PRIORITY_UPDATED,
+        @id,
+        String.build do |str|
+          str << "Priority updated: weight=#{priority.weight}"
+          str << ", exclusive=#{priority.exclusive?}"
+          str << ", dependency=#{priority.stream_dependency}"
+        end
+      )
     end
 
     private def validate_send_headers
@@ -320,6 +412,8 @@ module HT2
     end
 
     private def update_state_after_headers_sent(end_stream : Bool)
+      previous_state = @state
+
       case @state
       when StreamState::IDLE
         @state = end_stream ? StreamState::HALF_CLOSED_LOCAL : StreamState::OPEN
@@ -336,10 +430,37 @@ module HT2
           @closed_at = Time.utc
         end
       end
+
+      # Record state change if occurred
+      if previous_state != @state
+        @connection.stream_lifecycle_tracer.record_event(
+          StreamLifecycleTracer::EventType::STATE_CHANGE,
+          @id,
+          "Headers sent#{end_stream ? " with END_STREAM" : ""}",
+          previous_state,
+          @state
+        )
+      end
+
+      # Record headers sent event
+      @connection.stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::HEADERS_SENT,
+        @id,
+        "Headers sent#{end_stream ? " with END_STREAM" : ""}"
+      )
     end
 
     private def update_state_after_data_sent(end_stream : Bool)
+      # Record data sent event
+      @connection.stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::DATA_SENT,
+        @id,
+        "Data sent#{end_stream ? " with END_STREAM" : ""}"
+      )
+
       return unless end_stream
+
+      previous_state = @state
 
       case @state
       when StreamState::OPEN
@@ -348,9 +469,31 @@ module HT2
         @state = StreamState::CLOSED
         @closed_at = Time.utc
       end
+
+      # Record state change if occurred
+      if previous_state != @state
+        @connection.stream_lifecycle_tracer.record_event(
+          StreamLifecycleTracer::EventType::STATE_CHANGE,
+          @id,
+          "Data sent with END_STREAM",
+          previous_state,
+          @state
+        )
+      end
+
+      # Record stream closed if applicable
+      if @state == StreamState::CLOSED
+        @connection.stream_lifecycle_tracer.record_event(
+          StreamLifecycleTracer::EventType::CLOSED,
+          @id,
+          "Stream closed after sending data"
+        )
+      end
     end
 
     private def update_state_after_headers_received(end_stream : Bool)
+      previous_state = @state
+
       case @state
       when StreamState::IDLE
         @state = end_stream ? StreamState::HALF_CLOSED_REMOTE : StreamState::OPEN
@@ -362,10 +505,46 @@ module HT2
           @closed_at = Time.utc
         end
       end
+
+      # Record state change if occurred
+      if previous_state != @state
+        @connection.stream_lifecycle_tracer.record_event(
+          StreamLifecycleTracer::EventType::STATE_CHANGE,
+          @id,
+          "Headers received#{end_stream ? " with END_STREAM" : ""}",
+          previous_state,
+          @state
+        )
+      end
+
+      # Record headers received event
+      @connection.stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::HEADERS_RECEIVED,
+        @id,
+        "Headers received#{end_stream ? " with END_STREAM" : ""}"
+      )
+
+      # Record stream closed if applicable
+      if @state == StreamState::CLOSED
+        @connection.stream_lifecycle_tracer.record_event(
+          StreamLifecycleTracer::EventType::CLOSED,
+          @id,
+          "Stream closed after receiving headers"
+        )
+      end
     end
 
     private def update_state_after_data_received(end_stream : Bool)
+      # Record data received event
+      @connection.stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::DATA_RECEIVED,
+        @id,
+        "Data received#{end_stream ? " with END_STREAM" : ""}"
+      )
+
       return unless end_stream
+
+      previous_state = @state
 
       case @state
       when StreamState::OPEN
@@ -373,6 +552,26 @@ module HT2
       when StreamState::HALF_CLOSED_LOCAL
         @state = StreamState::CLOSED
         @closed_at = Time.utc
+      end
+
+      # Record state change if occurred
+      if previous_state != @state
+        @connection.stream_lifecycle_tracer.record_event(
+          StreamLifecycleTracer::EventType::STATE_CHANGE,
+          @id,
+          "Data received with END_STREAM",
+          previous_state,
+          @state
+        )
+      end
+
+      # Record stream closed if applicable
+      if @state == StreamState::CLOSED
+        @connection.stream_lifecycle_tracer.record_event(
+          StreamLifecycleTracer::EventType::CLOSED,
+          @id,
+          "Stream closed after receiving data"
+        )
       end
     end
 

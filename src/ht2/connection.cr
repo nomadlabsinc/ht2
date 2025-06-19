@@ -12,6 +12,7 @@ require "./performance_metrics"
 require "./rapid_reset_protection"
 require "./security"
 require "./stream"
+require "./stream_lifecycle_tracer"
 require "./vectored_io"
 
 module HT2
@@ -37,6 +38,7 @@ module HT2
     getter frame_cache : FrameCache
     getter metrics : ConnectionMetrics
     getter performance_metrics : PerformanceMetrics
+    getter stream_lifecycle_tracer : StreamLifecycleTracer
     getter? closed : Bool
 
     property on_headers : HeaderCallback?
@@ -145,6 +147,9 @@ module HT2
       # Connection metrics tracking
       @metrics = ConnectionMetrics.new
       @performance_metrics = PerformanceMetrics.new
+
+      # Stream lifecycle tracing (disabled by default)
+      @stream_lifecycle_tracer = StreamLifecycleTracer.new(false)
     end
 
     def start : Nil
@@ -217,6 +222,11 @@ module HT2
       # Track metrics
       @metrics.record_stream_created(stream_id)
       @performance_metrics.record_stream_created(stream_id)
+      @stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::CREATED,
+        stream_id,
+        "Stream created by client"
+      )
 
       stream
     end
@@ -993,6 +1003,11 @@ module HT2
         # Track metrics
         @metrics.record_stream_created(stream_id)
         @performance_metrics.record_stream_created(stream_id)
+        @stream_lifecycle_tracer.record_event(
+          StreamLifecycleTracer::EventType::CREATED,
+          stream_id,
+          "Stream created by server"
+        )
 
         Stream.new(self, stream_id, StreamState::IDLE)
       end
@@ -1132,6 +1147,31 @@ module HT2
       str << "    Priority: #{stream.priority}\n"
       str << "    End Stream Sent: #{stream.end_stream_sent?}\n"
       str << "    End Stream Received: #{stream.end_stream_received?}\n"
+    end
+
+    # Enable or disable stream lifecycle tracing
+    def enable_stream_tracing(enabled : Bool) : Nil
+      @stream_lifecycle_tracer.enabled = enabled
+    end
+
+    # Check if stream lifecycle tracing is enabled
+    def stream_tracing_enabled? : Bool
+      @stream_lifecycle_tracer.enabled?
+    end
+
+    # Get stream lifecycle report
+    def stream_lifecycle_report : String
+      @stream_lifecycle_tracer.generate_report
+    end
+
+    # Get detailed trace for a specific stream
+    def stream_trace(stream_id : UInt32) : String
+      @stream_lifecycle_tracer.get_stream_trace(stream_id)
+    end
+
+    # Clear all stream lifecycle traces
+    def clear_stream_traces : Nil
+      @stream_lifecycle_tracer.clear
     end
   end
 end

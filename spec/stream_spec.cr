@@ -58,6 +58,7 @@ class MockConnection < HT2::Connection
     @frame_cache = HT2::FrameCache.new
     @metrics = HT2::ConnectionMetrics.new
     @performance_metrics = HT2::PerformanceMetrics.new
+    @stream_lifecycle_tracer = HT2::StreamLifecycleTracer.new(false)
   end
 
   def send_frame(frame : HT2::Frame) : Nil
