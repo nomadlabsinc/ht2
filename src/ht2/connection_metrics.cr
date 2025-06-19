@@ -129,7 +129,8 @@ module HT2
         # Track specific frame types
         case frame
         when DataFrame
-          @bytes_sent += frame.data.size
+          bytes = frame.data.size
+          @bytes_sent += bytes
         when GoAwayFrame
           @goaway_sent = true
           @errors_sent.increment(frame.error_code)
@@ -150,7 +151,8 @@ module HT2
         # Track specific frame types
         case frame
         when DataFrame
-          @bytes_received += frame.data.size
+          bytes = frame.data.size
+          @bytes_received += bytes
         when GoAwayFrame
           @goaway_received = true
           @errors_received.increment(frame.error_code)
@@ -163,7 +165,7 @@ module HT2
     end
 
     # Record stream lifecycle events
-    def record_stream_created : Nil
+    def record_stream_created(stream_id : UInt32? = nil) : Nil
       @mutex.synchronize do
         @streams_created += 1
         @current_streams += 1
@@ -172,7 +174,7 @@ module HT2
       end
     end
 
-    def record_stream_closed : Nil
+    def record_stream_closed(stream_id : UInt32? = nil) : Nil
       @mutex.synchronize do
         @streams_closed += 1
         @current_streams -= 1 if @current_streams > 0

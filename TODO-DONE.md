@@ -150,7 +150,7 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
   - Thread-safe implementation with mutex protection
   - Comprehensive snapshot method for metrics retrieval
 
-- [x] **Add frame-type specific counters** - Current Branch
+- [x] **Add frame-type specific counters** - Commit: 93a9f5c
   - Implemented FrameCounters struct tracking all 10 frame types
   - Separate counters for sent and received frames
   - Track DATA, HEADERS, PRIORITY, RST_STREAM, SETTINGS frames
@@ -158,3 +158,32 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
   - Automatic increment based on frame type
   - Total frame count calculation
   - Integrated into ConnectionMetrics for easy access
+
+- [x] **Implement performance metrics (latency, throughput)** - Current Branch
+  - Created PerformanceMetrics class for comprehensive performance tracking
+  - StreamTiming struct tracks per-stream latency (creation, first byte, completion)
+  - ThroughputCalculator with rolling 60-second window for accurate throughput
+  - Latency percentile tracking (p50, p90, p95, p99) for completion and TTFB
+  - Separate send/receive throughput measurement in bytes per second
+  - Thread-safe implementation with mutex protection
+  - Maintains last 1000 samples for percentile calculations
+  - Zero overhead when metrics not actively queried
+
+- [x] **Add security event metrics** - Current Branch
+  - Created SecurityEventMetrics class for comprehensive security tracking
+  - Attack detection counters for all major HTTP/2 attacks:
+    - Rapid reset attempts (CVE-2023-44487)
+    - Settings flood attempts
+    - Ping flood attempts  
+    - Priority flood attempts
+    - Window update flood attempts
+  - Security violation tracking:
+    - Header size violations (MAX_HEADER_LIST_SIZE)
+    - Stream limit violations (MAX_CONCURRENT_STREAMS)
+    - Frame size violations (MAX_FRAME_SIZE)
+    - Invalid preface attempts
+  - Connection security events:
+    - Connections rejected due to bans
+    - Connections rate limited
+  - Integrated with existing security mechanisms
+  - Thread-safe counters with mutex protection

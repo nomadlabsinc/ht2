@@ -7,6 +7,7 @@ require "./frame_cache"
 require "./frames"
 require "./hpack"
 require "./multi_frame_writer"
+require "./performance_metrics"
 require "./rapid_reset_protection"
 require "./security"
 require "./stream"
@@ -34,6 +35,7 @@ module HT2
     getter buffer_pool : BufferPool
     getter frame_cache : FrameCache
     getter metrics : ConnectionMetrics
+    getter performance_metrics : PerformanceMetrics
     getter? closed : Bool
 
     property on_headers : HeaderCallback?
@@ -141,6 +143,7 @@ module HT2
 
       # Connection metrics tracking
       @metrics = ConnectionMetrics.new
+      @performance_metrics = PerformanceMetrics.new
     end
 
     def start : Nil
@@ -211,7 +214,8 @@ module HT2
       @total_streams_count += 1
 
       # Track metrics
-      @metrics.record_stream_created
+      @metrics.record_stream_created(stream_id)
+      @performance_metrics.record_stream_created(stream_id)
 
       stream
     end
@@ -264,6 +268,11 @@ module HT2
           @metrics.record_frame_sent(frame)
           @metrics.record_bytes_sent(frame_bytes.size)
 
+          # Record throughput for data frames
+          if frame.is_a?(DataFrame) && frame.data.size > 0
+            @performance_metrics.record_bytes_sent(frame.data.size.to_u64)
+          end
+
           # Mark write as complete
           @backpressure_manager.complete_write(frame_bytes.size.to_i64, stream_id)
 
@@ -302,6 +311,11 @@ module HT2
           # Track metrics
           @metrics.record_frame_sent(frame)
           @metrics.record_bytes_sent(frame_size)
+
+          # Record throughput for data frames
+          if frame.is_a?(DataFrame) && frame.data.size > 0
+            @performance_metrics.record_bytes_sent(frame.data.size.to_u64)
+          end
 
           # Mark write as complete
           @backpressure_manager.complete_write(frame_size.to_i64, stream_id)
@@ -486,6 +500,7 @@ module HT2
 
       # Track metrics
       @metrics.record_bytes_received(CONNECTION_PREFACE.bytesize)
+      @performance_metrics.record_bytes_received(CONNECTION_PREFACE.bytesize.to_u64)
     end
 
     private def send_client_preface
@@ -494,6 +509,7 @@ module HT2
 
       # Track metrics
       @metrics.record_bytes_sent(CONNECTION_PREFACE.bytesize)
+      @performance_metrics.record_bytes_sent(CONNECTION_PREFACE.bytesize.to_u64)
     end
 
     private def read_loop
@@ -507,7 +523,14 @@ module HT2
 
           # Validate frame size against negotiated MAX_FRAME_SIZE
           max_frame_size = @remote_settings[SettingsParameter::MAX_FRAME_SIZE]
-          Security.validate_frame_size(length, max_frame_size)
+          begin
+            Security.validate_frame_size(length, max_frame_size)
+          rescue ex : ConnectionError
+            if ex.code == ErrorCode::FRAME_SIZE_ERROR
+              @performance_metrics.security_events.record_frame_size_violation
+            end
+            raise ex
+          end
 
           # Track frame size for adaptive buffering
           @adaptive_buffer_manager.record_frame_size(Frame::HEADER_SIZE + length)
@@ -529,6 +552,7 @@ module HT2
           # Track metrics
           @metrics.record_frame_received(frame)
           @metrics.record_bytes_received(Frame::HEADER_SIZE + length)
+          @performance_metrics.record_bytes_received((Frame::HEADER_SIZE + length).to_u64)
 
           handle_frame(frame)
 
@@ -595,6 +619,10 @@ module HT2
       # Record data received for rapid reset protection
       if frame.data.size > 0
         @rapid_reset_protection.record_data_received(frame.stream_id)
+        # Record first byte for performance metrics
+        @performance_metrics.record_stream_first_byte(frame.stream_id)
+        # Record throughput
+        @performance_metrics.record_bytes_received(frame.data.size.to_u64)
       end
 
       # Send window update if needed using adaptive flow control
@@ -648,6 +676,9 @@ module HT2
           end
         rescue ex : HPACK::DecompressionError
           # HPACK decompression failed - protocol error
+          if ex.message.try(&.includes?("Headers size exceeds maximum"))
+            @performance_metrics.security_events.record_header_size_violation
+          end
           raise StreamError.new(frame.stream_id, ErrorCode::COMPRESSION_ERROR, ex.message)
         end
       else
@@ -697,6 +728,9 @@ module HT2
           end
         rescue ex : HPACK::DecompressionError
           # HPACK decompression failed - protocol error
+          if ex.message.try(&.includes?("Headers size exceeds maximum"))
+            @performance_metrics.security_events.record_header_size_violation
+          end
           raise StreamError.new(frame.stream_id, ErrorCode::COMPRESSION_ERROR, ex.message)
         end
 
@@ -708,6 +742,7 @@ module HT2
 
     private def handle_priority_frame(frame : PriorityFrame)
       unless @priority_rate_limiter.check
+        @performance_metrics.security_events.record_priority_flood_attempt
         raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "PRIORITY flood detected")
       end
 
@@ -717,6 +752,7 @@ module HT2
 
     private def handle_rst_stream_frame(frame : RstStreamFrame)
       unless @rst_rate_limiter.check
+        @performance_metrics.security_events.record_window_update_flood_attempt
         raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "RST_STREAM flood detected")
       end
 
@@ -725,6 +761,7 @@ module HT2
 
       # Record cancellation for rapid reset detection
       unless @rapid_reset_protection.record_stream_cancelled(frame.stream_id, @connection_id)
+        @performance_metrics.security_events.record_rapid_reset_attempt
         raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "Rapid reset attack detected")
       end
 
@@ -733,7 +770,8 @@ module HT2
       @rapid_reset_protection.record_stream_closed(frame.stream_id)
 
       # Track metrics
-      @metrics.record_stream_closed
+      @metrics.record_stream_closed(frame.stream_id)
+      @performance_metrics.record_stream_completed(frame.stream_id)
     end
 
     private def handle_settings_frame(frame : SettingsFrame)
@@ -748,6 +786,7 @@ module HT2
       else
         # Rate limit SETTINGS frames
         unless @settings_rate_limiter.check
+          @performance_metrics.security_events.record_settings_flood_attempt
           raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "SETTINGS flood detected")
         end
 
@@ -782,6 +821,7 @@ module HT2
       else
         # Rate limit PING frames
         unless @ping_rate_limiter.check
+          @performance_metrics.security_events.record_ping_flood_attempt
           raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "PING flood detected")
         end
 
@@ -804,6 +844,8 @@ module HT2
       @streams.each do |id, stream|
         if id > frame.last_stream_id
           @streams.delete(id)
+          @metrics.record_stream_closed(id)
+          @performance_metrics.record_stream_completed(id)
         end
       end
     end
@@ -906,10 +948,12 @@ module HT2
 
         # Check rapid reset protection
         if @rapid_reset_protection.banned?(@connection_id)
+          @performance_metrics.security_events.record_connection_rejected
           raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "Connection banned due to rapid reset attack")
         end
 
         unless @rapid_reset_protection.record_stream_created(stream_id, @connection_id)
+          @performance_metrics.security_events.record_connection_rate_limited
           raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "Stream creation rate limit exceeded")
         end
 
@@ -918,6 +962,7 @@ module HT2
         max_streams = @local_settings[SettingsParameter::MAX_CONCURRENT_STREAMS]
 
         if active_streams >= max_streams
+          @performance_metrics.security_events.record_stream_limit_violation
           raise ConnectionError.new(ErrorCode::REFUSED_STREAM, "Maximum concurrent streams (#{max_streams}) reached")
         end
 
@@ -930,7 +975,8 @@ module HT2
         @total_streams_count += 1
 
         # Track metrics
-        @metrics.record_stream_created
+        @metrics.record_stream_created(stream_id)
+        @performance_metrics.record_stream_created(stream_id)
 
         Stream.new(self, stream_id, StreamState::IDLE)
       end
