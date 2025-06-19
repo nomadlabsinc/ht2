@@ -1,5 +1,6 @@
 require "./adaptive_flow_control"
 require "./security"
+require "./stream_state_machine"
 
 module HT2
   enum StreamState
@@ -14,7 +15,7 @@ module HT2
 
   class Stream
     getter id : UInt32
-    property state : StreamState
+    getter state_machine : StreamStateMachine
     getter connection : Connection
     property send_window_size : Int64
     property recv_window_size : Int64
@@ -31,7 +32,8 @@ module HT2
       @data.to_slice
     end
 
-    def initialize(@connection : Connection, @id : UInt32, @state : StreamState = StreamState::IDLE)
+    def initialize(@connection : Connection, @id : UInt32, initial_state : StreamState = StreamState::IDLE)
+      @state_machine = StreamStateMachine.new(@id, initial_state)
       @send_window_size = connection.remote_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64
       @recv_window_size = connection.local_settings[SettingsParameter::INITIAL_WINDOW_SIZE].to_i64
       @priority = nil
@@ -46,7 +48,7 @@ module HT2
     end
 
     def send_headers(headers : Array(Tuple(String, String)), end_stream : Bool = false) : Nil
-      validate_send_headers
+      @state_machine.validate_send_headers
 
       @response_headers = headers
       header_block = @connection.hpack_encoder.encode(headers)
@@ -66,7 +68,7 @@ module HT2
     end
 
     def send_data(data : Bytes, end_stream : Bool = false) : Nil
-      validate_send_data
+      @state_machine.validate_send_data
 
       # Check flow control window
       if data.size > @send_window_size
@@ -107,7 +109,7 @@ module HT2
     end
 
     def send_data_chunked(data : Bytes, chunk_size : Int32 = 16_384, end_stream : Bool = false) : Nil
-      validate_send_data
+      @state_machine.validate_send_data
       adaptive_chunk_size = get_adaptive_chunk_size(chunk_size)
       send_chunks(adaptive_chunk_size, data, end_stream)
     end
@@ -156,7 +158,7 @@ module HT2
 
     # Send data using multiple frames efficiently
     def send_data_multi(chunks : Array(Bytes), end_stream : Bool = false) : Nil
-      validate_send_data
+      @state_machine.validate_send_data
 
       # Use connection's multi-frame method for efficiency
       @connection.send_data_frames(@id, chunks, end_stream)
@@ -166,15 +168,19 @@ module HT2
     end
 
     def send_rst_stream(error_code : ErrorCode) : Nil
-      if @state == StreamState::CLOSED
+      if state == StreamState::CLOSED
         return
       end
 
-      previous_state = @state
+      previous_state = state
 
       frame = RstStreamFrame.new(@id, error_code)
       @connection.send_frame(frame)
-      @state = StreamState::CLOSED
+
+      # Transition state machine
+      event = StreamStateMachine.rst_stream_event(true)
+      new_state, _ = @state_machine.transition(event)
+
       @closed_at = Time.utc
       @connection.metrics.record_stream_closed
 
@@ -191,7 +197,7 @@ module HT2
         @id,
         "Stream reset with #{error_code}",
         previous_state,
-        @state
+        new_state
       )
 
       # Record stream closed
@@ -203,7 +209,7 @@ module HT2
     end
 
     def receive_headers(headers : Array(Tuple(String, String)), end_stream : Bool, priority : Bool = false) : Nil
-      validate_receive_headers
+      @state_machine.validate_receive_headers
 
       @request_headers = headers
       @end_stream_received = true if end_stream
@@ -211,7 +217,7 @@ module HT2
     end
 
     def receive_data(data : Bytes, end_stream : Bool) : Nil
-      validate_receive_data
+      @state_machine.validate_receive_data
 
       # Update receive window
       @recv_window_size -= data.size
@@ -282,10 +288,10 @@ module HT2
 
     def update_recv_window(increment : Int32) : Nil
       # In CLOSED state, ignore window updates
-      return if @state == StreamState::CLOSED
+      return if state == StreamState::CLOSED
 
       # In IDLE state, window updates are not allowed
-      if @state == StreamState::IDLE
+      if state == StreamState::IDLE
         raise ProtocolError.new("Cannot update window in IDLE state")
       end
 
@@ -305,9 +311,17 @@ module HT2
     end
 
     def receive_rst_stream(error_code : ErrorCode) : Nil
-      previous_state = @state
+      # RST_STREAM is allowed in CLOSED state - just ignore it
+      if state == StreamState::CLOSED
+        return
+      end
 
-      @state = StreamState::CLOSED
+      previous_state = state
+
+      # Transition state machine
+      event = StreamStateMachine.rst_stream_event(false)
+      new_state, _ = @state_machine.transition(event)
+
       @closed_at = Time.utc
       @connection.metrics.record_stream_closed
 
@@ -319,13 +333,13 @@ module HT2
       )
 
       # Record state change to CLOSED
-      if previous_state != @state
+      if previous_state != new_state
         @connection.stream_lifecycle_tracer.record_event(
           StreamLifecycleTracer::EventType::STATE_CHANGE,
           @id,
           "Stream reset by peer with #{error_code}",
           previous_state,
-          @state
+          new_state
         )
       end
 
@@ -340,7 +354,7 @@ module HT2
     def receive_priority(priority : PriorityData) : Nil
       # PRIORITY frames are allowed in any state, including CLOSED
       # for a short period after stream closure
-      if @state == StreamState::CLOSED && @closed_at
+      if state == StreamState::CLOSED && @closed_at
         # Allow PRIORITY frames for 2 seconds after closure
         closed_at = @closed_at
         return unless closed_at
@@ -361,84 +375,26 @@ module HT2
       )
     end
 
-    private def validate_send_headers
-      case @state
-      when StreamState::IDLE, StreamState::RESERVED_LOCAL
-        # OK
-      when StreamState::OPEN, StreamState::HALF_CLOSED_REMOTE
-        # OK for trailers after DATA
-      when StreamState::CLOSED
-        raise StreamClosedError.new(@id, "Cannot send headers on closed stream")
-      else
-        raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Cannot send headers in state #{@state}")
-      end
-    end
-
-    private def validate_send_data
-      case @state
-      when StreamState::OPEN, StreamState::HALF_CLOSED_REMOTE
-        # OK
-      when StreamState::CLOSED, StreamState::HALF_CLOSED_LOCAL
-        raise StreamClosedError.new(@id, "Cannot send data on closed stream")
-      else
-        raise ProtocolError.new("Cannot send data in state #{@state}")
-      end
-    end
-
-    private def validate_receive_headers
-      case @state
-      when StreamState::IDLE, StreamState::RESERVED_REMOTE
-        # OK
-      when StreamState::OPEN, StreamState::HALF_CLOSED_LOCAL
-        # OK for trailers after DATA
-      when StreamState::CLOSED
-        raise StreamClosedError.new(@id, "Cannot receive headers on closed stream")
-      else
-        raise ProtocolError.new("Cannot receive headers in state #{@state}")
-      end
-    end
-
-    private def validate_receive_data
-      case @state
-      when StreamState::OPEN, StreamState::HALF_CLOSED_LOCAL
-        # OK
-      when StreamState::CLOSED, StreamState::HALF_CLOSED_REMOTE
-        raise StreamClosedError.new(@id, "Cannot receive data on closed stream")
-      when StreamState::IDLE
-        raise ProtocolError.new("Cannot receive data in IDLE state")
-      else
-        raise ProtocolError.new("Cannot receive data in state #{@state}")
-      end
-    end
-
     private def update_state_after_headers_sent(end_stream : Bool)
-      previous_state = @state
+      previous_state = state
 
-      case @state
-      when StreamState::IDLE
-        @state = end_stream ? StreamState::HALF_CLOSED_LOCAL : StreamState::OPEN
-      when StreamState::RESERVED_LOCAL
-        @state = StreamState::HALF_CLOSED_REMOTE
-      when StreamState::OPEN
-        # Sending headers with END_STREAM in OPEN state (trailers)
-        if end_stream
-          @state = StreamState::HALF_CLOSED_LOCAL
-        end
-      when StreamState::HALF_CLOSED_REMOTE
-        if end_stream
-          @state = StreamState::CLOSED
-          @closed_at = Time.utc
-        end
+      # Transition state machine
+      event = StreamStateMachine.headers_event(end_stream, true)
+      new_state, _ = @state_machine.transition(event)
+
+      # Update closed timestamp if needed
+      if new_state == StreamState::CLOSED
+        @closed_at = Time.utc
       end
 
       # Record state change if occurred
-      if previous_state != @state
+      if previous_state != new_state
         @connection.stream_lifecycle_tracer.record_event(
           StreamLifecycleTracer::EventType::STATE_CHANGE,
           @id,
           "Headers sent#{end_stream ? " with END_STREAM" : ""}",
           previous_state,
-          @state
+          new_state
         )
       end
 
@@ -460,29 +416,30 @@ module HT2
 
       return unless end_stream
 
-      previous_state = @state
+      previous_state = state
 
-      case @state
-      when StreamState::OPEN
-        @state = StreamState::HALF_CLOSED_LOCAL
-      when StreamState::HALF_CLOSED_REMOTE
-        @state = StreamState::CLOSED
+      # Transition state machine
+      event = StreamStateMachine.data_event(end_stream, true)
+      new_state, _ = @state_machine.transition(event)
+
+      # Update closed timestamp if needed
+      if new_state == StreamState::CLOSED
         @closed_at = Time.utc
       end
 
       # Record state change if occurred
-      if previous_state != @state
+      if previous_state != new_state
         @connection.stream_lifecycle_tracer.record_event(
           StreamLifecycleTracer::EventType::STATE_CHANGE,
           @id,
           "Data sent with END_STREAM",
           previous_state,
-          @state
+          new_state
         )
       end
 
       # Record stream closed if applicable
-      if @state == StreamState::CLOSED
+      if new_state == StreamState::CLOSED
         @connection.stream_lifecycle_tracer.record_event(
           StreamLifecycleTracer::EventType::CLOSED,
           @id,
@@ -492,28 +449,25 @@ module HT2
     end
 
     private def update_state_after_headers_received(end_stream : Bool)
-      previous_state = @state
+      previous_state = state
 
-      case @state
-      when StreamState::IDLE
-        @state = end_stream ? StreamState::HALF_CLOSED_REMOTE : StreamState::OPEN
-      when StreamState::RESERVED_REMOTE
-        @state = StreamState::HALF_CLOSED_LOCAL
-      when StreamState::HALF_CLOSED_LOCAL
-        if end_stream
-          @state = StreamState::CLOSED
-          @closed_at = Time.utc
-        end
+      # Transition state machine
+      event = StreamStateMachine.headers_event(end_stream, false)
+      new_state, _ = @state_machine.transition(event)
+
+      # Update closed timestamp if needed
+      if new_state == StreamState::CLOSED
+        @closed_at = Time.utc
       end
 
       # Record state change if occurred
-      if previous_state != @state
+      if previous_state != new_state
         @connection.stream_lifecycle_tracer.record_event(
           StreamLifecycleTracer::EventType::STATE_CHANGE,
           @id,
           "Headers received#{end_stream ? " with END_STREAM" : ""}",
           previous_state,
-          @state
+          new_state
         )
       end
 
@@ -525,7 +479,7 @@ module HT2
       )
 
       # Record stream closed if applicable
-      if @state == StreamState::CLOSED
+      if new_state == StreamState::CLOSED
         @connection.stream_lifecycle_tracer.record_event(
           StreamLifecycleTracer::EventType::CLOSED,
           @id,
@@ -544,29 +498,30 @@ module HT2
 
       return unless end_stream
 
-      previous_state = @state
+      previous_state = state
 
-      case @state
-      when StreamState::OPEN
-        @state = StreamState::HALF_CLOSED_REMOTE
-      when StreamState::HALF_CLOSED_LOCAL
-        @state = StreamState::CLOSED
+      # Transition state machine
+      event = StreamStateMachine.data_event(end_stream, false)
+      new_state, _ = @state_machine.transition(event)
+
+      # Update closed timestamp if needed
+      if new_state == StreamState::CLOSED
         @closed_at = Time.utc
       end
 
       # Record state change if occurred
-      if previous_state != @state
+      if previous_state != new_state
         @connection.stream_lifecycle_tracer.record_event(
           StreamLifecycleTracer::EventType::STATE_CHANGE,
           @id,
           "Data received with END_STREAM",
           previous_state,
-          @state
+          new_state
         )
       end
 
       # Record stream closed if applicable
-      if @state == StreamState::CLOSED
+      if new_state == StreamState::CLOSED
         @connection.stream_lifecycle_tracer.record_event(
           StreamLifecycleTracer::EventType::CLOSED,
           @id,
@@ -575,8 +530,12 @@ module HT2
       end
     end
 
+    def state : StreamState
+      @state_machine.current_state
+    end
+
     def closed? : Bool
-      @state == StreamState::CLOSED
+      state == StreamState::CLOSED
     end
   end
 end

@@ -5,7 +5,7 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 ## 🔧 RFC Compliance Issues
 
 ### Stream State Management
-- [ ] Consider refactoring to a more formal state machine pattern
+- [x] Consider refactoring to a more formal state machine pattern
 
 
 ## 🛡️ Security Issues
