@@ -226,3 +226,17 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
   - Thread-safe implementation with mutex protection
   - Configurable enable/disable for production performance
   - Comprehensive unit and integration test coverage
+
+## ✅ RFC Compliance and Architecture
+
+- [x] **Stream state machine refactoring** - Commit: <current>
+  - Created formal StreamStateMachine class with explicit state transitions
+  - Defined all valid state transitions according to RFC 9113
+  - Centralized state transition logic with event-based design
+  - Clear separation of concerns between state management and stream operations
+  - Comprehensive validation methods for each operation type
+  - Support for all frame types in appropriate states
+  - Proper handling of edge cases (RST_STREAM in CLOSED state)
+  - Warning generation for likely trailer scenarios
+  - Thread-safe state transitions
+  - Extensive test coverage for all state transitions

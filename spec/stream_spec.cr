@@ -125,12 +125,20 @@ describe HT2::Stream do
     it "transitions to CLOSED from HALF_CLOSED states" do
       connection = MockConnection.new
       stream = HT2::Stream.new(connection, 1_u32)
-      stream.state = HT2::StreamState::HALF_CLOSED_REMOTE
 
+      # Transition to HALF_CLOSED_REMOTE by receiving headers with END_STREAM
       headers : Array(Tuple(String, String)) = [
+        {":method", "GET"},
+        {":path", "/"},
+      ]
+      stream.receive_headers(headers, end_stream: true)
+      stream.state.should eq(HT2::StreamState::HALF_CLOSED_REMOTE)
+
+      # Now send headers with END_STREAM to close the stream
+      response_headers : Array(Tuple(String, String)) = [
         {":status", "200"},
       ]
-      stream.send_headers(headers, end_stream: true)
+      stream.send_headers(response_headers, end_stream: true)
       stream.state.should eq(HT2::StreamState::CLOSED)
     end
   end
@@ -139,7 +147,13 @@ describe HT2::Stream do
     it "tracks window size for sent data" do
       connection = MockConnection.new
       stream = HT2::Stream.new(connection, 1_u32)
-      stream.state = HT2::StreamState::OPEN
+
+      # Send headers to transition to OPEN state
+      headers : Array(Tuple(String, String)) = [
+        {":status", "200"},
+      ]
+      stream.send_headers(headers, end_stream: false)
+      stream.state.should eq(HT2::StreamState::OPEN)
 
       initial_window : Int64 = stream.send_window_size
       data : Bytes = "test data".to_slice
@@ -151,7 +165,14 @@ describe HT2::Stream do
     it "rejects data larger than window" do
       connection = MockConnection.new
       stream = HT2::Stream.new(connection, 1_u32)
-      stream.state = HT2::StreamState::OPEN
+
+      # Send headers to transition to OPEN state
+      headers : Array(Tuple(String, String)) = [
+        {":status", "200"},
+      ]
+      stream.send_headers(headers, end_stream: false)
+      stream.state.should eq(HT2::StreamState::OPEN)
+
       stream.send_window_size = 10_i64
 
       large_data : Bytes = Bytes.new(11)
@@ -176,22 +197,20 @@ describe HT2::Stream do
   describe "error handling" do
     it "validates state for sending headers" do
       connection = MockConnection.new
-      stream = HT2::Stream.new(connection, 1_u32)
-      stream.state = HT2::StreamState::CLOSED
+      stream = HT2::Stream.new(connection, 1_u32, HT2::StreamState::CLOSED)
 
       headers : Array(Tuple(String, String)) = [
         {":status", "200"},
       ]
 
-      expect_raises(HT2::StreamError) do
+      expect_raises(HT2::StreamClosedError) do
         stream.send_headers(headers)
       end
     end
 
     it "validates state for sending data" do
       connection = MockConnection.new
-      stream = HT2::Stream.new(connection, 1_u32)
-      stream.state = HT2::StreamState::IDLE
+      stream = HT2::Stream.new(connection, 1_u32) # IDLE state by default
 
       data : Bytes = "test".to_slice
 
@@ -217,7 +236,14 @@ describe HT2::Stream do
     it "accumulates received data" do
       connection = MockConnection.new
       stream = HT2::Stream.new(connection, 1_u32)
-      stream.state = HT2::StreamState::OPEN
+
+      # Receive headers to transition to OPEN state
+      headers : Array(Tuple(String, String)) = [
+        {":method", "GET"},
+        {":path", "/"},
+      ]
+      stream.receive_headers(headers, end_stream: false)
+      stream.state.should eq(HT2::StreamState::OPEN)
 
       data1 : Bytes = "Hello ".to_slice
       data2 : Bytes = "World!".to_slice
