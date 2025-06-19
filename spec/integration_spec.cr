@@ -49,7 +49,7 @@ describe "HT2 Integration Tests" do
         response.close
       end
 
-      server = HT2::Server.new("localhost", port, handler, create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
       spawn do
         server_ready.send(nil)
@@ -88,7 +88,7 @@ describe "HT2 Integration Tests" do
         response.close
       end
 
-      server = HT2::Server.new("localhost", port, handler, create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
       spawn do
         server_ready.send(nil)
@@ -128,7 +128,7 @@ describe "HT2 Integration Tests" do
         response.close
       end
 
-      server = HT2::Server.new("localhost", port, handler, create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
       spawn do
         server_ready.send(nil)
@@ -173,7 +173,7 @@ describe "HT2 Integration Tests" do
         response.close
       end
 
-      server = HT2::Server.new("localhost", port, handler, create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
       spawn do
         server_ready.send(nil)
@@ -211,7 +211,7 @@ describe "HT2 Integration Tests" do
         response.close
       end
 
-      server = HT2::Server.new("localhost", port, handler, create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
       spawn do
         server_ready.send(nil)
@@ -254,7 +254,7 @@ describe "HT2 Integration Tests" do
         end
       end
 
-      server = HT2::Server.new("localhost", port, handler, create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
       spawn do
         server_ready.send(nil)

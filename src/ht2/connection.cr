@@ -161,6 +161,11 @@ module HT2
         send_client_preface
       end
 
+      start_without_preface
+    end
+
+    # Start connection without reading/sending preface (used for h2c upgrade)
+    def start_without_preface : Nil
       # Send initial settings
       send_frame(SettingsFrame.new(settings: @local_settings))
 
@@ -226,6 +231,44 @@ module HT2
         StreamLifecycleTracer::EventType::CREATED,
         stream_id,
         "Stream created by client"
+      )
+
+      stream
+    end
+
+    # Create a stream with a specific ID (used for h2c upgrade)
+    def create_stream(stream_id : UInt32) : Stream
+      # Check concurrent stream limit
+      active_streams = @streams.count { |_, stream| !stream.closed? }
+      max_streams = @remote_settings[SettingsParameter::MAX_CONCURRENT_STREAMS]
+
+      if active_streams >= max_streams
+        raise ConnectionError.new(ErrorCode::REFUSED_STREAM, "Maximum concurrent streams (#{max_streams}) reached")
+      end
+
+      # Validate stream ID
+      if @is_server && stream_id.even?
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Invalid stream ID for server")
+      elsif !@is_server && stream_id.odd?
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Invalid stream ID for client")
+      end
+
+      # Update last stream ID if needed
+      if stream_id > @last_stream_id
+        @last_stream_id = stream_id
+      end
+
+      stream = Stream.new(self, stream_id)
+      @streams[stream_id] = stream
+      @total_streams_count += 1
+
+      # Track metrics
+      @metrics.record_stream_created(stream_id)
+      @performance_metrics.record_stream_created(stream_id)
+      @stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::CREATED,
+        stream_id,
+        "Stream created for h2c upgrade"
       )
 
       stream
@@ -904,7 +947,7 @@ module HT2
       @streams[stream_id] || raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Unknown stream #{stream_id}")
     end
 
-    private def apply_remote_settings(settings : SettingsFrame::Settings) : Nil
+    def apply_remote_settings(settings : SettingsFrame::Settings) : Nil
       settings.each do |param, value|
         validate_setting(param, value)
         apply_single_setting(param, value)

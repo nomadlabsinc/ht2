@@ -24,7 +24,7 @@ describe HT2::Server do
         tls_context = HT2::Server.create_tls_context(temp_cert_file, temp_key_file)
 
         # Create server instance
-        server = HT2::Server.new("localhost", 0, handler, tls_context)
+        server = HT2::Server.new("localhost", 0, handler, tls_context: tls_context)
         server.should_not be_nil
 
         # Clean up
