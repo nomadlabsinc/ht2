@@ -47,7 +47,7 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 ### Debugging Support
 - [x] Add debug mode with frame logging
 - [x] Implement connection state dumping
-- [ ] Add stream lifecycle tracing
+- [x] Add stream lifecycle tracing
 
 ## 📚 Documentation
 

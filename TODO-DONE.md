@@ -202,7 +202,7 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
   - Logs both parsed frames and raw bytes
   - Thread-safe logging implementation
 
-- [x] **Implement connection state dumping** - Current Branch
+- [x] **Implement connection state dumping** - Commit: 7fcbc81
   - Created comprehensive dump_state method in Connection class
   - Dumps complete connection state including settings, streams, flow control
   - Shows HPACK table sizes and dynamic table usage
@@ -212,3 +212,17 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
   - Helper methods for status formatting and stream state details
   - Integration with existing metrics and monitoring systems
   - Useful for troubleshooting connection issues and performance analysis
+
+- [x] **Add stream lifecycle tracing** - Current Branch
+  - Created StreamLifecycleTracer class for detailed stream event tracking
+  - Tracks all stream lifecycle events: CREATED, STATE_CHANGE, HEADERS_SENT/RECEIVED, DATA_SENT/RECEIVED, RST_SENT/RECEIVED, PRIORITY_UPDATED, WINDOW_UPDATE_SENT/RECEIVED, FLOW_CONTROL_STALL/RESUME, CLOSED, ERROR
+  - StreamHistory class maintains complete event log per stream
+  - Integrated with Connection and Stream classes for automatic event recording
+  - Records state transitions with previous and new states
+  - Tracks flow control events including window updates and stalls
+  - Maintains active streams and recently closed streams (up to 1000)
+  - Provides detailed trace report for individual streams
+  - Generates summary report of all active and recent streams
+  - Thread-safe implementation with mutex protection
+  - Configurable enable/disable for production performance
+  - Comprehensive unit and integration test coverage
