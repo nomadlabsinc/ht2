@@ -1,3 +1,4 @@
+require "./adaptive_buffer_manager"
 require "./buffer_pool"
 require "./frame"
 require "./frames"
@@ -24,6 +25,7 @@ module HT2
     # Maximum frames to batch before forcing a flush
     MAX_BATCH_SIZE = 100
 
+    getter adaptive_buffer_manager : AdaptiveBufferManager?
     getter buffer_pool : BufferPool
     getter write_buffer : Bytes
     getter write_mutex : Mutex
@@ -31,8 +33,11 @@ module HT2
     private getter pending_data_frames : Array(DataFrame)
     private getter pending_other_frames : Array(Frame)
 
-    def initialize(@buffer_pool : BufferPool, buffer_size : Int32 = DEFAULT_BUFFER_SIZE)
-      @write_buffer = @buffer_pool.acquire(buffer_size)
+    def initialize(@buffer_pool : BufferPool,
+                   @adaptive_buffer_manager : AdaptiveBufferManager? = nil,
+                   buffer_size : Int32? = nil)
+      size = buffer_size || @adaptive_buffer_manager.try(&.recommended_write_buffer_size) || DEFAULT_BUFFER_SIZE
+      @write_buffer = @buffer_pool.acquire(size)
       @write_mutex = Mutex.new
       @pending_data_frames = Array(DataFrame).new
       @pending_other_frames = Array(Frame).new
@@ -65,6 +70,10 @@ module HT2
     # Flush all pending frames to the given IO
     def flush_to(io : IO) : Nil
       @write_mutex.synchronize do
+        # Calculate bytes before flushing for adaptive buffering
+        total_bytes = calculate_buffered_bytes_internal
+        @adaptive_buffer_manager.try(&.record_write_size(total_bytes)) if total_bytes > 0
+
         flush_internal_to(io)
       end
     end
@@ -72,8 +81,7 @@ module HT2
     # Get the number of bytes currently buffered
     def buffered_bytes : Int32
       @write_mutex.synchronize do
-        other_bytes = @pending_other_frames.sum { |frame| Frame::HEADER_SIZE + frame.payload.size }
-        other_bytes + pending_data_bytes
+        calculate_buffered_bytes_internal
       end
     end
 
@@ -141,6 +149,11 @@ module HT2
 
     private def pending_data_bytes : Int32
       @pending_data_frames.sum { |frame| Frame::HEADER_SIZE + frame.data.size }
+    end
+
+    private def calculate_buffered_bytes_internal : Int32
+      other_bytes = @pending_other_frames.sum { |frame| Frame::HEADER_SIZE + frame.payload.size }
+      other_bytes + pending_data_bytes
     end
 
     # Optimized batch writer for multiple DATA frames from the same stream

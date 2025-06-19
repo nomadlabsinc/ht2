@@ -99,7 +99,17 @@ module HT2
 
     def send_data_chunked(data : Bytes, chunk_size : Int32 = 16_384, end_stream : Bool = false) : Nil
       validate_send_data
-      send_chunks(chunk_size, data, end_stream)
+      adaptive_chunk_size = get_adaptive_chunk_size(chunk_size)
+      send_chunks(adaptive_chunk_size, data, end_stream)
+    end
+
+    private def get_adaptive_chunk_size(default_size : Int32) : Int32
+      if buffer_mgr = @connection.adaptive_buffer_manager
+        available_window = Math.min(@send_window_size.to_i32, @connection.window_size.to_i32)
+        buffer_mgr.recommended_chunk_size(available_window)
+      else
+        default_size
+      end
     end
 
     private def send_chunks(chunk_size : Int32, data : Bytes, end_stream : Bool) : Nil
