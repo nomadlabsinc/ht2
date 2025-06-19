@@ -41,8 +41,8 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 ### Metrics Collection
 - [x] Add connection-level metrics (streams, data transferred, errors)
 - [x] Add frame-type specific counters
-- [ ] Implement performance metrics (latency, throughput)
-- [ ] Add security event metrics
+- [x] Implement performance metrics (latency, throughput)
+- [x] Add security event metrics
 
 ### Debugging Support
 - [ ] Add debug mode with frame logging
