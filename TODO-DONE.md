@@ -284,6 +284,35 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
     - Common pitfalls and solutions
   - Added testing instructions for integration verification
 
+- [x] **Create migration guide from Crystal's HTTP::Server** - Commit: <current>
+  - Created comprehensive migration guide (docs/MIGRATION_GUIDE.md)
+  - Covered basic server migration with side-by-side examples
+  - Documented handler migration patterns and differences
+  - Added middleware migration with HT2-compatible patterns
+  - Detailed request/response object differences
+  - Included WebSocket over HTTP/2 migration approach
+  - Documented configuration changes for TLS and server options
+  - Added performance considerations section
+    - Connection reuse patterns
+    - Server push implementation
+    - Flow control monitoring
+  - Listed common pitfalls with solutions
+    - Header case sensitivity
+    - Response immutability
+    - Connection limit differences
+    - Request body streaming
+  - Provided gradual migration strategy
+    - Running both servers simultaneously
+    - Load balancer configuration
+    - Feature flag approach
+    - Metrics comparison
+  - Added comprehensive testing section
+    - Protocol compatibility tests
+    - Load testing with h2load
+    - HTTP/2 feature validation
+  - Included practical examples throughout
+  - Referenced other documentation for deeper dives
+
 ## ✅ HTTP/2 Clear Text (h2c) Support
 
 - [x] **HTTP/2 Clear Text (h2c) Support for Proxy Deployments** - Commit: <current>

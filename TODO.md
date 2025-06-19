@@ -96,7 +96,7 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 ### API Documentation
 - [x] Document all public APIs with examples
 - [x] Add integration guide for web frameworks
-- [ ] Create migration guide from Crystal's HTTP::Server
+- [x] Create migration guide from Crystal's HTTP::Server
 
 ### Examples
 - [ ] Add example: File server with server push
