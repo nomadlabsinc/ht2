@@ -187,3 +187,17 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
     - Connections rate limited
   - Integrated with existing security mechanisms
   - Thread-safe counters with mutex protection
+
+## ✅ Monitoring & Observability
+
+- [x] **Add debug mode with frame logging** - Current Branch
+  - Created DebugMode class with configurable frame logging
+  - Support for inbound and outbound frame logging
+  - Frame-specific formatting with all relevant details
+  - Raw frame bytes logging at trace level
+  - Configurable data preview limits
+  - Integration with Crystal's Log module
+  - Environment-aware setup (skips in test environment)
+  - Added frame logging to Connection class
+  - Logs both parsed frames and raw bytes
+  - Thread-safe logging implementation

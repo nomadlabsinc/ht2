@@ -3,6 +3,7 @@ require "./adaptive_flow_control"
 require "./backpressure"
 require "./buffer_pool"
 require "./connection_metrics"
+require "./debug_mode"
 require "./frame_cache"
 require "./frames"
 require "./hpack"
@@ -221,6 +222,9 @@ module HT2
     end
 
     def send_frame(frame : Frame) : Nil
+      # Log outbound frame if debug mode is enabled
+      DebugMode.log_frame(@connection_id, DebugMode::Direction::Outbound, frame)
+
       # For DATA frames without padding, use zero-copy path
       if frame.is_a?(DataFrame) && !frame.flags.padded?
         send_frame_zero_copy(frame.as(DataFrame))
@@ -406,6 +410,11 @@ module HT2
       return if frames.empty?
       return send_frames(frames) unless @socket.is_a?(IO::FileDescriptor)
 
+      # Log frames if debug mode is enabled
+      frames.each do |frame|
+        DebugMode.log_frame(@connection_id, DebugMode::Direction::Outbound, frame)
+      end
+
       @write_mutex.synchronize do
         VectoredIO.write_frames(@socket.as(IO::FileDescriptor), frames, @buffer_pool)
       end
@@ -546,8 +555,15 @@ module HT2
             @socket.read_fully(full_frame[Frame::HEADER_SIZE, length])
           end
 
+          # Log raw frame bytes if debug mode is enabled
+          raw_frame = full_frame[0, Frame::HEADER_SIZE + length]
+          DebugMode.log_raw_frame(@connection_id, DebugMode::Direction::Inbound, raw_frame)
+
           # Parse and handle frame
           frame = Frame.parse(full_frame[0, Frame::HEADER_SIZE + length])
+
+          # Log parsed frame if debug mode is enabled
+          DebugMode.log_frame(@connection_id, DebugMode::Direction::Inbound, frame)
 
           # Track metrics
           @metrics.record_frame_received(frame)

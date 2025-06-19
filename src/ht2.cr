@@ -1,6 +1,7 @@
 require "./ht2/errors"
 require "./ht2/connection"
 require "./ht2/context"
+require "./ht2/debug_mode"
 require "./ht2/frames"
 require "./ht2/hpack"
 require "./ht2/request"
