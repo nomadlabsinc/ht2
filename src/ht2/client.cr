@@ -1,6 +1,7 @@
 require "openssl"
 require "uri"
 require "./connection"
+require "./h2c"
 require "./request"
 require "./response"
 
@@ -36,16 +37,19 @@ module HT2
     getter max_connections_per_host : Int32
     getter connection_timeout : Time::Span
     getter idle_timeout : Time::Span
+    getter? enable_h2c : Bool
 
     def initialize(
-      @max_connections_per_host : Int32 = 2,
       @connection_timeout : Time::Span = 10.seconds,
+      @enable_h2c : Bool = false,
       @idle_timeout : Time::Span = 5.minutes,
+      @max_connections_per_host : Int32 = 2,
       @tls_context : OpenSSL::SSL::Context::Client? = nil,
     )
       @connections = Hash(String, Array(ClientConnection)).new { |hash, key| hash[key] = [] of ClientConnection }
       @mutex = Mutex.new
       @response_channels = Hash(UInt32, Channel(ClientResponse)).new
+      @h2c_support_cache = Hash(String, Bool).new
     end
 
     def get(url : String, headers : Hash(String, String) = {} of String => String) : ClientResponse
@@ -252,6 +256,9 @@ module HT2
         end
 
         connection = Connection.new(tls_socket, is_server: false)
+      elsif @enable_h2c && scheme == "http"
+        # Try h2c upgrade
+        connection = create_h2c_connection(socket, host, port)
       else
         connection = Connection.new(socket, is_server: false)
       end
@@ -283,6 +290,86 @@ module HT2
       context.alpn_protocol = "h2"
       context.verify_mode = OpenSSL::SSL::VerifyMode::PEER
       context
+    end
+
+    private def create_h2c_connection(socket : TCPSocket, host : String, port : Int32) : Connection
+      cache_key = "#{host}:#{port}"
+
+      # Check cache for h2c support
+      if @h2c_support_cache.has_key?(cache_key)
+        if @h2c_support_cache[cache_key]
+          # Direct h2c connection (prior knowledge)
+          return create_h2c_prior_knowledge(socket)
+        else
+          # Server doesn't support h2c
+          return Connection.new(socket, is_server: false)
+        end
+      end
+
+      # Try h2c upgrade
+      begin
+        connection = try_h2c_upgrade(socket, host, port)
+        @h2c_support_cache[cache_key] = true
+        connection
+      rescue
+        # Fallback to HTTP/1.1 or close
+        @h2c_support_cache[cache_key] = false
+        socket.close
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Server does not support h2c")
+      end
+    end
+
+    private def create_h2c_prior_knowledge(socket : TCPSocket) : Connection
+      connection = Connection.new(socket, is_server: false)
+      connection
+    end
+
+    private def try_h2c_upgrade(socket : TCPSocket, host : String, port : Int32) : Connection
+      # Prepare settings for HTTP2-Settings header
+      settings = SettingsFrame::Settings.new
+      settings[SettingsParameter::INITIAL_WINDOW_SIZE] = 65_535_u32
+
+      # Encode settings
+      settings_bytes = IO::Memory.new
+      settings.each do |param, value|
+        settings_bytes.write_bytes(param.to_u16, IO::ByteFormat::BigEndian)
+        settings_bytes.write_bytes(value, IO::ByteFormat::BigEndian)
+      end
+
+      encoded_settings = Base64.encode(settings_bytes.to_s).strip.tr("+/", "-_").rstrip('=')
+
+      # Send HTTP/1.1 upgrade request
+      request = String.build do |io|
+        io << "GET / HTTP/1.1\r\n"
+        io << "Host: #{host}:#{port}\r\n"
+        io << "Connection: Upgrade\r\n"
+        io << "Upgrade: h2c\r\n"
+        io << "HTTP2-Settings: #{encoded_settings}\r\n"
+        io << "\r\n"
+      end
+
+      socket.write(request.to_slice)
+      socket.flush
+
+      # Read response
+      response_line = socket.gets(limit: 1024)
+      unless response_line && response_line.starts_with?("HTTP/1.1 101")
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "h2c upgrade failed")
+      end
+
+      # Read rest of 101 response headers
+      while line = socket.gets(limit: 1024)
+        break if line == "\r\n" || line.strip.empty?
+      end
+
+      # Create HTTP/2 connection
+      connection = Connection.new(socket, is_server: false)
+
+      # Apply settings we sent
+      connection.update_settings(settings)
+
+      # Don't call start() here - it will be called by the connection pool
+      connection
     end
   end
 

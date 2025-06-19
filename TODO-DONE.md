@@ -243,7 +243,7 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
 
 ## ✅ Documentation
 
-- [x] **Document all public APIs with examples** - Commit: <current>
+- [x] **Document all public APIs with examples** - Commit: 6144b27
   - Created comprehensive API reference documentation (docs/API_REFERENCE.md)
   - Documented all major public-facing classes and modules
   - Added complete method signatures with parameter and return types
@@ -254,3 +254,42 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
   - Added monitoring and metrics documentation with examples
   - Included best practices section for common patterns
   - Comprehensive error handling examples and patterns
+
+## ✅ HTTP/2 Clear Text (h2c) Support
+
+- [x] **HTTP/2 Clear Text (h2c) Support for Proxy Deployments** - Commit: <current>
+  - Implemented HTTP/1.1 Upgrade mechanism (RFC 7540 Section 3.2)
+    - Parse HTTP/1.1 Upgrade request headers with proper timeout handling
+    - Validate required headers: `Upgrade: h2c`, `HTTP2-Settings`
+    - Decode base64url-encoded SETTINGS payload from HTTP2-Settings header
+    - Send HTTP/1.1 101 Switching Protocols response
+    - Include required response headers: `Connection: Upgrade`, `Upgrade: h2c`
+  - Added Server configuration options for h2c mode
+    - Added `enable_h2c : Bool` parameter to Server constructor
+    - Added `h2c_upgrade_timeout : Time::Span` for upgrade timeout
+    - Alphabetized constructor parameters per project standards
+  - Updated connection initialization for h2c
+    - Skip ALPN validation for h2c connections
+    - Apply SETTINGS from HTTP2-Settings header if present
+    - Process upgrade request as stream 1 per RFC
+  - Added h2c-specific error handling
+    - Handle malformed upgrade requests with 400 Bad Request
+    - Implement upgrade timeout handling
+    - Add appropriate error responses (400, 505)
+  - Created h2c module (src/ht2/h2c.cr)
+    - HTTP/1.1 header parsing with timeout support
+    - Settings decoding from base64url format
+    - Upgrade request detection
+  - Created h2c integration tests
+    - Test HTTP/1.1 Upgrade flow
+    - Test non-h2c request rejection
+    - Test custom settings in upgrade
+    - Test error cases and timeouts
+  - Updated client to support h2c
+    - Add h2c upgrade support in Client
+    - Auto-detect h2c capability with caching
+    - Cache h2c support per host
+  - Created h2c example (examples/h2c_example.cr)
+    - Demonstrates server and client h2c usage
+    - Shows concurrent request handling
+  - Note: Direct prior knowledge support deferred (requires complex buffering)

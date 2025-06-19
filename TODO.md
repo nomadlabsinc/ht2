@@ -18,42 +18,48 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 
 ## ⚙️ Configuration
 
-### HTTP/2 Clear Text (h2c) Support for Proxy Deployments
-- [ ] Implement HTTP/2 prior knowledge (h2c) support for TLS-terminating proxies
-  - [ ] Add h2c connection detection in Server#handle_client
-  - [ ] Implement HTTP/1.1 Upgrade mechanism (RFC 7540 Section 3.2)
-    - [ ] Parse HTTP/1.1 Upgrade request headers
-    - [ ] Validate required headers: `Upgrade: h2c`, `HTTP2-Settings`
-    - [ ] Decode base64url-encoded SETTINGS payload from HTTP2-Settings header
-    - [ ] Send HTTP/1.1 101 Switching Protocols response
-    - [ ] Include required response headers: `Connection: Upgrade`, `Upgrade: h2c`
-  - [ ] Support direct HTTP/2 prior knowledge (RFC 7540 Section 3.4)
-    - [ ] Detect HTTP/2 connection preface without TLS
-    - [ ] Skip HTTP/1.1 upgrade for prior knowledge connections
-  - [ ] Add Server configuration option for h2c mode
-    - [ ] Add `enable_h2c : Bool` parameter to Server constructor
-    - [ ] Add `h2c_upgrade_timeout : Time::Span` for upgrade timeout
-  - [ ] Update connection initialization for h2c
-    - [ ] Skip ALPN validation for h2c connections
-    - [ ] Apply SETTINGS from HTTP2-Settings header if present
-  - [ ] Add h2c-specific error handling
-    - [ ] Handle malformed upgrade requests
-    - [ ] Implement upgrade timeout handling
-    - [ ] Add appropriate error responses (400, 505)
-  - [ ] Create h2c integration tests
-    - [ ] Test HTTP/1.1 Upgrade flow
-    - [ ] Test direct prior knowledge connections
-    - [ ] Test with common reverse proxies (NGINX, HAProxy)
-    - [ ] Test error cases and timeouts
-  - [ ] Add h2c examples and documentation
-    - [ ] Example: Basic h2c server configuration
-    - [ ] Example: NGINX reverse proxy with h2c backend
-    - [ ] Example: HAProxy configuration for h2c
-    - [ ] Document security considerations for h2c
-  - [ ] Update client to support h2c
-    - [ ] Add h2c upgrade support in Client
-    - [ ] Auto-detect h2c capability
-    - [ ] Cache h2c support per host
+### Direct HTTP/2 Prior Knowledge Support (RFC 7540 Section 3.4)
+- [ ] Implement connection type detection without consuming data
+  - [ ] Create BufferedSocket wrapper that allows peeking at initial bytes
+  - [ ] Implement peek(n) method that doesn't consume bytes from socket
+  - [ ] Handle both IO::Buffered and raw socket types
+  - [ ] Ensure thread-safe operation for concurrent connections
+- [ ] Detect HTTP/2 connection preface (PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n)
+  - [ ] Check first 24 bytes for exact match
+  - [ ] Distinguish from HTTP/1.1 methods (GET, POST, etc.)
+  - [ ] Handle partial reads gracefully
+- [ ] Create routing logic in Server#handle_h2c_client
+  - [ ] Peek at first bytes to detect connection type
+  - [ ] Route to handle_h2c_prior_knowledge for HTTP/2 preface
+  - [ ] Route to handle_h2c_upgrade for HTTP/1.1 requests
+  - [ ] Handle edge cases (empty reads, timeouts, errors)
+- [ ] Implement handle_h2c_prior_knowledge method
+  - [ ] Skip HTTP/1.1 upgrade negotiation entirely
+  - [ ] Create Connection with buffered socket containing preface
+  - [ ] Let Connection.start() consume the preface normally
+  - [ ] Apply default settings for the connection
+- [ ] Update Connection to work with buffered input
+  - [ ] Ensure read operations work with BufferedSocket
+  - [ ] Handle transition from buffered to direct socket reads
+  - [ ] Maintain performance for non-buffered connections
+- [ ] Add prior knowledge client support
+  - [ ] Add use_prior_knowledge option to Client
+  - [ ] Skip upgrade negotiation when enabled
+  - [ ] Send preface immediately after connecting
+  - [ ] Cache prior knowledge support per host
+- [ ] Create comprehensive tests
+  - [ ] Test BufferedSocket peek functionality
+  - [ ] Test connection type detection logic
+  - [ ] Test prior knowledge server handling
+  - [ ] Test prior knowledge client connections
+  - [ ] Test mixed connection types (upgrade and prior knowledge)
+  - [ ] Performance tests to ensure no regression
+- [ ] Update examples and documentation
+  - [ ] Add prior knowledge example server
+  - [ ] Add prior knowledge example client
+  - [ ] Document when to use prior knowledge vs upgrade
+  - [ ] Add curl examples with --http2-prior-knowledge
+
 
 ## 🚀 Performance Optimizations
 
