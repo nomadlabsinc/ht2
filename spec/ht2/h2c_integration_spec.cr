@@ -5,10 +5,9 @@ describe "H2C Integration" do
   pending "accepts direct HTTP/2 connection with prior knowledge"
 
   it "handles HTTP/1.1 upgrade to h2c" do
-    port = 8081
     server = HT2::Server.new(
       host: "127.0.0.1",
-      port: port,
+      port: 0,
       handler: ->(request : HT2::Request, response : HT2::Response) {
         response.status = 200
         response.headers["content-type"] = "text/plain"
@@ -21,7 +20,7 @@ describe "H2C Integration" do
     spawn { server.listen }
     sleep 0.1.seconds
 
-    socket = TCPSocket.new("127.0.0.1", port)
+    socket = TCPSocket.new("127.0.0.1", server.port)
 
     # Send HTTP/1.1 upgrade request
     request = String.build do |io|
@@ -67,10 +66,9 @@ describe "H2C Integration" do
   end
 
   it "rejects non-h2c requests when h2c is enabled without TLS" do
-    port = 8082
     server = HT2::Server.new(
       host: "127.0.0.1",
-      port: port,
+      port: 0,
       handler: ->(request : HT2::Request, response : HT2::Response) {
         response.status = 200
         nil
@@ -81,7 +79,7 @@ describe "H2C Integration" do
     spawn { server.listen }
     sleep 0.1.seconds
 
-    socket = TCPSocket.new("127.0.0.1", port)
+    socket = TCPSocket.new("127.0.0.1", server.port)
 
     # Send regular HTTP/1.1 request (no upgrade)
     request = String.build do |io|
@@ -105,10 +103,9 @@ describe "H2C Integration" do
   end
 
   it "handles h2c upgrade with custom settings" do
-    port = 8083
     server = HT2::Server.new(
       host: "127.0.0.1",
-      port: port,
+      port: 0,
       handler: ->(request : HT2::Request, response : HT2::Response) {
         response.status = 200
         response.write("OK".to_slice)
@@ -123,7 +120,7 @@ describe "H2C Integration" do
     spawn { server.listen }
     sleep 0.1.seconds
 
-    socket = TCPSocket.new("127.0.0.1", port)
+    socket = TCPSocket.new("127.0.0.1", server.port)
 
     # Create settings with HEADER_TABLE_SIZE=4096
     settings_bytes = IO::Memory.new
@@ -136,7 +133,7 @@ describe "H2C Integration" do
     # Send HTTP/1.1 upgrade request
     request = String.build do |io|
       io << "GET /test HTTP/1.1\r\n"
-      io << "Host: localhost:#{port}\r\n"
+      io << "Host: localhost:#{server.port}\r\n"
       io << "Connection: Upgrade\r\n"
       io << "Upgrade: h2c\r\n"
       io << "HTTP2-Settings: #{encoded_settings}\r\n"
@@ -172,10 +169,9 @@ describe "H2C Integration" do
   end
 
   it "handles h2c upgrade timeout" do
-    port = 8084
     server = HT2::Server.new(
       host: "127.0.0.1",
-      port: port,
+      port: 0,
       handler: ->(request : HT2::Request, response : HT2::Response) {
         response.status = 200
         nil
@@ -187,7 +183,7 @@ describe "H2C Integration" do
     spawn { server.listen }
     sleep 0.1.seconds
 
-    socket = TCPSocket.new("127.0.0.1", port)
+    socket = TCPSocket.new("127.0.0.1", server.port)
 
     # Start sending request but don't complete it
     socket.write("GET / HTTP/1.1\r\n".to_slice)

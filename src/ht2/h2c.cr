@@ -1,4 +1,5 @@
 require "base64"
+require "./buffered_socket"
 require "./frames"
 
 module HT2
@@ -14,6 +15,12 @@ module HT2
 
     # HTTP/1.1 response for successful upgrade
     SWITCHING_PROTOCOLS_RESPONSE = "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n"
+
+    # HTTP/2 connection preface that clients must send
+    H2_PREFACE = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+
+    # Common HTTP/1.1 method names for detection
+    HTTP1_METHODS = ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH", "CONNECT", "TRACE"]
 
     # Checks if an HTTP/1.1 request is an h2c upgrade request
     def self.upgrade_request?(headers : Hash(String, String)) : Bool
@@ -62,6 +69,40 @@ module HT2
 
       preface_bytes = CONNECTION_PREFACE.to_slice
       data[0, preface_bytes.size] == preface_bytes
+    end
+
+    # Detects if the initial bytes are HTTP/2 prior knowledge connection
+    def self.h2_prior_knowledge?(data : Bytes) : Bool
+      return false if data.size < H2_PREFACE.bytesize
+      data[0, H2_PREFACE.bytesize] == H2_PREFACE.to_slice
+    end
+
+    # Detects if the initial bytes are HTTP/1.1
+    def self.http1_request?(data : Bytes) : Bool
+      return false if data.size < 3
+
+      # Check if it starts with a known HTTP method
+      data_str = String.new(data[0, Math.min(data.size, 16)])
+      HTTP1_METHODS.any? { |method| data_str.starts_with?(method) }
+    end
+
+    # Detects connection type from initial bytes
+    enum ConnectionType
+      Unknown
+      H2PriorKnowledge
+      Http1
+    end
+
+    def self.detect_connection_type(data : Bytes) : ConnectionType
+      return ConnectionType::Unknown if data.size < 3
+
+      if h2_prior_knowledge?(data)
+        ConnectionType::H2PriorKnowledge
+      elsif http1_request?(data)
+        ConnectionType::Http1
+      else
+        ConnectionType::Unknown
+      end
     end
 
     # Reads HTTP/1.1 request headers from socket

@@ -38,6 +38,7 @@ module HT2
     getter connection_timeout : Time::Span
     getter idle_timeout : Time::Span
     getter? enable_h2c : Bool
+    getter? use_prior_knowledge : Bool
 
     def initialize(
       @connection_timeout : Time::Span = 10.seconds,
@@ -45,11 +46,13 @@ module HT2
       @idle_timeout : Time::Span = 5.minutes,
       @max_connections_per_host : Int32 = 2,
       @tls_context : OpenSSL::SSL::Context::Client? = nil,
+      @use_prior_knowledge : Bool = false,
     )
       @connections = Hash(String, Array(ClientConnection)).new { |hash, key| hash[key] = [] of ClientConnection }
       @mutex = Mutex.new
       @response_channels = Hash(UInt32, Channel(ClientResponse)).new
       @h2c_support_cache = Hash(String, Bool).new
+      @prior_knowledge_cache = Hash(String, Bool).new
     end
 
     def get(url : String, headers : Hash(String, String) = {} of String => String) : ClientResponse
@@ -295,14 +298,31 @@ module HT2
     private def create_h2c_connection(socket : TCPSocket, host : String, port : Int32) : Connection
       cache_key = "#{host}:#{port}"
 
+      # If configured to use prior knowledge, try that first
+      if @use_prior_knowledge || @prior_knowledge_cache[cache_key]?
+        begin
+          return create_h2c_prior_knowledge(socket)
+        rescue ex
+          # Failed to use prior knowledge, fall back to upgrade
+          @prior_knowledge_cache[cache_key] = false
+          socket.close
+          socket = TCPSocket.new(host, port, connect_timeout: @connection_timeout)
+        end
+      end
+
       # Check cache for h2c support
       if @h2c_support_cache.has_key?(cache_key)
         if @h2c_support_cache[cache_key]
-          # Direct h2c connection (prior knowledge)
-          return create_h2c_prior_knowledge(socket)
+          # Try prior knowledge again if we know server supports h2c
+          begin
+            return create_h2c_prior_knowledge(socket)
+          rescue
+            # Fall back to upgrade
+          end
         else
           # Server doesn't support h2c
-          return Connection.new(socket, is_server: false)
+          socket.close
+          raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Server does not support h2c")
         end
       end
 
@@ -320,7 +340,17 @@ module HT2
     end
 
     private def create_h2c_prior_knowledge(socket : TCPSocket) : Connection
+      # Send HTTP/2 connection preface immediately
+      socket.write(H2C::H2_PREFACE.to_slice)
+      socket.flush
+
+      # Create connection and mark prior knowledge was used
       connection = Connection.new(socket, is_server: false)
+
+      # Cache that this host supports prior knowledge
+      host_port = "#{socket.remote_address.address}:#{socket.remote_address.port}"
+      @prior_knowledge_cache[host_port] = true
+
       connection
     end
 
