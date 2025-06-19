@@ -64,11 +64,11 @@ pool = HT2::BufferPool.new
 
 # Create mixed frames
 mixed_frames = [
-  HT2::WindowUpdateFrame.new(0_u32, 65535_u32),
+  HT2::WindowUpdateFrame.new(0_u32, 65_535_u32),
   HT2::SettingsFrame.new,
   HT2::PingFrame.new(Bytes.new(8, 1)),
   HT2::DataFrame.new(1_u32, "Some data".to_slice),
-  HT2::WindowUpdateFrame.new(1_u32, 32768_u32),
+  HT2::WindowUpdateFrame.new(1_u32, 32_768_u32),
 ]
 
 io.clear

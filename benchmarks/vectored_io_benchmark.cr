@@ -13,11 +13,11 @@ def create_test_frames(count : Int32) : Array(HT2::Frame)
       frames << HT2::PingFrame.new("PING#{i}".ljust(8, '0').to_slice)
     when 1
       # Window update
-      frames << HT2::WindowUpdateFrame.new(0, 65535)
+      frames << HT2::WindowUpdateFrame.new(0, 65_535)
     when 2
       # Settings frame
       settings = HT2::SettingsFrame::Settings.new
-      settings[HT2::SettingsFrame::Identifier::INITIAL_WINDOW_SIZE] = 131072_u32
+      settings[HT2::SettingsFrame::Identifier::INITIAL_WINDOW_SIZE] = 131_072_u32
       frames << HT2::SettingsFrame.new(settings)
     else
       # Data frame
@@ -82,7 +82,7 @@ iterations = 1000
 
 frame_counts.each do |count|
   frames = create_test_frames(count)
-  total_bytes = frames.sum { |f| HT2::Frame::HEADER_SIZE + f.payload.size }
+  total_bytes = frames.sum { |frame| HT2::Frame::HEADER_SIZE + frame.payload.size }
 
   puts "Testing with #{count} frames (#{total_bytes} bytes total):"
 
@@ -107,7 +107,7 @@ puts "DATA Frame Vectored I/O Benchmark"
 puts "================================"
 puts
 
-data_sizes = [1024, 4096, 16384, 65536]
+data_sizes = [1024, 4096, 16_384, 65_536]
 frame_count = 20
 
 data_sizes.each do |size|
@@ -121,7 +121,7 @@ data_sizes.each do |size|
   sequential_data_time = Benchmark.measure do
     iterations.times do
       io = IO::Memory.new
-      data_frames.each { |frame| frame.write_to(io) }
+      data_frames.each(&.write_to(io))
     end
   end
 
