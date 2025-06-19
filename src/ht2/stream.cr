@@ -166,6 +166,7 @@ module HT2
       @connection.send_frame(frame)
       @state = StreamState::CLOSED
       @closed_at = Time.utc
+      @connection.metrics.record_stream_closed
     end
 
     def receive_headers(headers : Array(Tuple(String, String)), end_stream : Bool, priority : Bool = false) : Nil
@@ -252,6 +253,7 @@ module HT2
     def receive_rst_stream(error_code : ErrorCode) : Nil
       @state = StreamState::CLOSED
       @closed_at = Time.utc
+      @connection.metrics.record_stream_closed
     end
 
     def receive_priority(priority : PriorityData) : Nil

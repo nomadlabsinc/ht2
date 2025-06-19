@@ -2,6 +2,7 @@ require "./adaptive_buffer_manager"
 require "./adaptive_flow_control"
 require "./backpressure"
 require "./buffer_pool"
+require "./connection_metrics"
 require "./frame_cache"
 require "./frames"
 require "./hpack"
@@ -32,6 +33,7 @@ module HT2
     getter adaptive_buffer_manager : AdaptiveBufferManager
     getter buffer_pool : BufferPool
     getter frame_cache : FrameCache
+    getter metrics : ConnectionMetrics
     getter? closed : Bool
 
     property on_headers : HeaderCallback?
@@ -136,6 +138,9 @@ module HT2
 
       # Frame cache for common frames
       @frame_cache = FrameCache.new
+
+      # Connection metrics tracking
+      @metrics = ConnectionMetrics.new
     end
 
     def start : Nil
@@ -204,6 +209,10 @@ module HT2
       stream = Stream.new(self, stream_id)
       @streams[stream_id] = stream
       @total_streams_count += 1
+
+      # Track metrics
+      @metrics.record_stream_created
+
       stream
     end
 
@@ -251,6 +260,10 @@ module HT2
           @socket.write(frame_bytes)
           @socket.flush
 
+          # Track metrics
+          @metrics.record_frame_sent(frame)
+          @metrics.record_bytes_sent(frame_bytes.size)
+
           # Mark write as complete
           @backpressure_manager.complete_write(frame_bytes.size.to_i64, stream_id)
 
@@ -285,6 +298,10 @@ module HT2
           # Use zero-copy write
           frame.write_to(@socket)
           @socket.flush
+
+          # Track metrics
+          @metrics.record_frame_sent(frame)
+          @metrics.record_bytes_sent(frame_size)
 
           # Mark write as complete
           @backpressure_manager.complete_write(frame_size.to_i64, stream_id)
@@ -466,11 +483,17 @@ module HT2
       if String.new(preface) != CONNECTION_PREFACE
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Invalid client preface")
       end
+
+      # Track metrics
+      @metrics.record_bytes_received(CONNECTION_PREFACE.bytesize)
     end
 
     private def send_client_preface
       @socket.write(CONNECTION_PREFACE.to_slice)
       @socket.flush
+
+      # Track metrics
+      @metrics.record_bytes_sent(CONNECTION_PREFACE.bytesize)
     end
 
     private def read_loop
@@ -502,6 +525,11 @@ module HT2
 
           # Parse and handle frame
           frame = Frame.parse(full_frame[0, Frame::HEADER_SIZE + length])
+
+          # Track metrics
+          @metrics.record_frame_received(frame)
+          @metrics.record_bytes_received(Frame::HEADER_SIZE + length)
+
           handle_frame(frame)
 
           # Release buffers back to pool
@@ -585,6 +613,7 @@ module HT2
         # Record stall if window is exhausted
         if @window_size <= 0
           @flow_controller.record_stall
+          @metrics.record_flow_control_stall
         end
       end
 
@@ -702,6 +731,9 @@ module HT2
       stream.receive_rst_stream(frame.error_code)
       @streams.delete(frame.stream_id)
       @rapid_reset_protection.record_stream_closed(frame.stream_id)
+
+      # Track metrics
+      @metrics.record_stream_closed
     end
 
     private def handle_settings_frame(frame : SettingsFrame)
@@ -896,6 +928,10 @@ module HT2
 
         @last_stream_id = stream_id
         @total_streams_count += 1
+
+        # Track metrics
+        @metrics.record_stream_created
+
         Stream.new(self, stream_id, StreamState::IDLE)
       end
     end

@@ -39,8 +39,8 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 ## 🔍 Monitoring & Observability
 
 ### Metrics Collection
-- [ ] Add connection-level metrics (streams, data transferred, errors)
-- [ ] Add frame-type specific counters
+- [x] Add connection-level metrics (streams, data transferred, errors)
+- [x] Add frame-type specific counters
 - [ ] Implement performance metrics (latency, throughput)
 - [ ] Add security event metrics
 
