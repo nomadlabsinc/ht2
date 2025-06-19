@@ -1013,5 +1013,125 @@ module HT2
       settings[SettingsParameter::ENABLE_PUSH] = 0_u32 # Disable push
       settings
     end
+
+    # Dump comprehensive connection state for debugging
+    def dump_state : String
+      String.build do |str|
+        metrics = @metrics.snapshot
+        str << "=== HTTP/2 Connection State Dump ===\n"
+        str << "Connection ID: #{@connection_id}\n"
+        str << "Type: #{@is_server ? "Server" : "Client"}\n"
+        str << "Created: #{metrics[:started_at]}\n"
+        str << "Uptime: #{metrics[:uptime_seconds].round(2)}s\n"
+        str << "Idle: #{metrics[:idle_seconds].round(2)}s\n"
+        str << "Status: #{connection_status}\n"
+        str << "\n"
+
+        str << "=== Connection State ===\n"
+        str << "Closed: #{@closed}\n"
+        str << "GOAWAY Sent: #{@goaway_sent}\n"
+        str << "GOAWAY Received: #{@goaway_received}\n"
+        str << "Window Size: #{@window_size}\n"
+        str << "Last Stream ID: #{@last_stream_id}\n"
+        str << "\n"
+
+        str << "=== Settings ===\n"
+        str << "Local Settings:\n"
+        dump_settings(str, @local_settings, "  ")
+        str << "Remote Settings:\n"
+        dump_settings(str, @remote_settings, "  ")
+        str << "Applied Settings:\n"
+        dump_settings(str, @applied_settings, "  ")
+        str << "\n"
+
+        str << "=== Streams (#{@streams.size} active) ===\n"
+        @streams.each do |id, stream|
+          dump_stream_state(str, id, stream)
+        end
+        str << "\n"
+
+        str << "=== Flow Control ===\n"
+        str << "Strategy: #{@flow_controller.strategy}\n"
+        str << "Initial Window: #{@flow_controller.initial_window_size}\n"
+        str << "Min Threshold: #{@flow_controller.min_update_threshold}\n"
+        str << "Max Threshold: #{@flow_controller.max_update_threshold}\n"
+        str << "Current Threshold: #{@flow_controller.current_threshold}\n"
+        str << "\n"
+
+        str << "=== Backpressure ===\n"
+        bp_metrics = @backpressure_manager.connection_metrics
+        str << "Connection Pressure: #{(bp_metrics[:pressure] * 100).round(1)}%\n"
+        str << "Pending Bytes: #{bp_metrics[:pending_bytes]}\n"
+        str << "Pending Frames: #{bp_metrics[:pending_frames]}\n"
+        str << "Paused: #{@backpressure_manager.paused?}\n"
+        str << "Stream Pressures:\n"
+        @streams.each do |stream_id, stream|
+          stream_pressure = @backpressure_manager.stream_pressure(stream_id)
+          str << "  Stream #{stream_id}: #{(stream_pressure * 100).round(1)}%\n"
+        end
+        str << "\n"
+
+        str << "=== Buffer Management ===\n"
+        str << "Read Buffer Size: #{@read_buffer.size}\n"
+        str << "Buffer Pool Stats:\n"
+        pool_stats = @buffer_pool.stats
+        str << "  Max Pool Size: #{pool_stats[:max_size]}\n"
+        str << "  Available: #{pool_stats[:available]}\n"
+        str << "  In Use: #{pool_stats[:max_size] - pool_stats[:available]}\n"
+        str << "\n"
+
+        str << "=== HPACK State ===\n"
+        str << "Encoder Table Size: #{@hpack_encoder.dynamic_table_size}/#{@hpack_encoder.max_dynamic_table_size}\n"
+        str << "Decoder Table Size: #{@hpack_decoder.dynamic_table_size}/#{@hpack_decoder.max_dynamic_table_size}\n"
+        str << "\n"
+
+        str << "=== Metrics Summary ===\n"
+        str << "Streams: #{metrics[:streams][:current]} active, "
+        str << "#{metrics[:streams][:created]} created, "
+        str << "#{metrics[:streams][:closed]} closed\n"
+        str << "Bytes: #{metrics[:bytes][:sent]} sent, #{metrics[:bytes][:received]} received\n"
+        str << "Frames Sent: #{metrics[:frames][:sent][:total]}\n"
+        str << "Frames Received: #{metrics[:frames][:received][:total]}\n"
+        str << "Flow Control Stalls: #{metrics[:flow_control][:stalls]}\n"
+        str << "\n"
+
+        str << "=== Security Status ===\n"
+        reset_metrics = @rapid_reset_protection.metrics
+        str << "Rapid Reset Metrics:\n"
+        str << "  Active Streams: #{reset_metrics[:active_streams]}\n"
+        str << "  Pending Streams: #{reset_metrics[:pending_streams]}\n"
+        str << "  Banned Connections: #{reset_metrics[:banned_connections]}\n"
+        str << "  Rapid Reset Counts: #{reset_metrics[:rapid_reset_counts]}\n"
+      end
+    end
+
+    private def connection_status : String
+      if @closed
+        "Closed"
+      elsif @goaway_sent || @goaway_received
+        parts = [] of String
+        parts << "sent" if @goaway_sent
+        parts << "received" if @goaway_received
+        "Closing (GOAWAY #{parts.join("/")})"
+      else
+        "Active"
+      end
+    end
+
+    private def dump_settings(str : String::Builder, settings : SettingsFrame::Settings, indent : String) : Nil
+      settings.each do |param, value|
+        str << indent << "#{param}: #{value}\n"
+      end
+    end
+
+    private def dump_stream_state(str : String::Builder, id : UInt32, stream : Stream) : Nil
+      str << "  Stream #{id}:\n"
+      str << "    State: #{stream.state}\n"
+      str << "    Send Window: #{stream.send_window_size}\n"
+      str << "    Recv Window: #{stream.recv_window_size}\n"
+      str << "    Priority: #{stream.priority}\n"
+      str << "    End Stream Sent: #{stream.end_stream_sent?}\n"
+      str << "    End Stream Received: #{stream.end_stream_received?}\n"
+    end
   end
 end
