@@ -53,6 +53,11 @@ module HT2
       @running = true
       @worker_pool.start
 
+      # Update port if it was 0 (dynamic assignment)
+      if @port == 0
+        @port = server.local_address.port
+      end
+
       puts "HTTP/2 server listening on #{@host}:#{@port}"
 
       while @running
@@ -72,6 +77,7 @@ module HT2
     def close : Nil
       @running = false
       @worker_pool.stop
+      # Close the server socket to unblock accept
       @server.try(&.close)
       @connections.each(&.close)
     end
@@ -148,23 +154,45 @@ module HT2
     end
 
     private def handle_h2c_client(socket : TCPSocket, client_ip : String)
-      # For h2c, we'll handle HTTP/1.1 upgrade only for now
-      # Direct prior knowledge support would require buffering
-      handle_h2c_upgrade(socket, client_ip)
+      # Wrap socket in BufferedSocket to peek at initial bytes
+      buffered_socket = BufferedSocket.new(socket)
+
+      # Peek at first 24 bytes to detect connection type with timeout
+      # Use a shorter timeout for the initial peek
+      peek_timeout = {% if env("CRYSTAL_SPEC") %} 100.milliseconds {% else %} 1.second {% end %}
+      initial_bytes = buffered_socket.peek(24, peek_timeout)
+
+      # If we didn't get enough bytes, assume HTTP/1.1
+      if initial_bytes.size < 3
+        send_http1_error(socket, 408, "Request Timeout")
+        return
+      end
+
+      case H2C.detect_connection_type(initial_bytes)
+      when H2C::ConnectionType::H2PriorKnowledge
+        handle_h2c_prior_knowledge(buffered_socket, client_ip)
+      when H2C::ConnectionType::Http1
+        handle_h2c_upgrade(buffered_socket, client_ip)
+      else
+        send_http1_error(socket, 400, "Bad Request")
+      end
+    rescue IO::TimeoutError
+      send_http1_error(socket, 408, "Request Timeout")
     rescue ex
       puts "Error in h2c handler: #{ex.message}"
       socket.close rescue nil
     end
 
-    private def handle_h2c_prior_knowledge(socket : TCPSocket, client_ip : String)
-      # Create HTTP/2 connection directly
+    private def handle_h2c_prior_knowledge(socket : BufferedSocket, client_ip : String)
+      # Create HTTP/2 connection directly with buffered socket
+      # The buffered socket already contains the preface that was peeked
       connection = Connection.new(socket, is_server: true, client_ip: client_ip)
       @connections << connection
 
       # Configure connection settings
       configure_connection(connection)
 
-      # Start connection (will read preface)
+      # Start connection (will read preface from buffered socket)
       connection.start
     rescue ex
       puts "Error handling h2c prior knowledge: #{ex.message}"
@@ -172,7 +200,7 @@ module HT2
       @connections.delete(connection) if connection
     end
 
-    private def handle_h2c_upgrade(socket : TCPSocket, client_ip : String)
+    private def handle_h2c_upgrade(socket : BufferedSocket, client_ip : String)
       # For simplicity, we'll rely on HTTP/1.1 upgrade mechanism
       # Clients that want to use prior knowledge should send the preface
       # after connecting, which will be handled by the Connection class

@@ -292,4 +292,43 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
   - Created h2c example (examples/h2c_example.cr)
     - Demonstrates server and client h2c usage
     - Shows concurrent request handling
-  - Note: Direct prior knowledge support deferred (requires complex buffering)
+
+- [x] **HTTP/2 Prior Knowledge Support (RFC 7540 Section 3.4)** - Commit: <current>
+  - Implemented connection type detection without consuming data
+    - Created BufferedSocket wrapper that allows peeking at initial bytes
+    - Implemented peek(n) method that doesn't consume bytes from socket
+    - Handles both IO::Buffered and raw socket types
+    - Thread-safe operation for concurrent connections
+  - Detect HTTP/2 connection preface
+    - Check first 24 bytes for exact match of "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+    - Distinguish from HTTP/1.1 methods (GET, POST, etc.)
+    - Handle partial reads gracefully
+  - Created routing logic in Server#handle_h2c_client
+    - Peek at first bytes to detect connection type
+    - Route to handle_h2c_prior_knowledge for HTTP/2 preface
+    - Route to handle_h2c_upgrade for HTTP/1.1 requests
+    - Handle edge cases (empty reads, timeouts, errors)
+  - Implemented handle_h2c_prior_knowledge method
+    - Skip HTTP/1.1 upgrade negotiation entirely
+    - Create Connection with buffered socket containing preface
+    - Let Connection.start() consume the preface normally
+    - Apply default settings for the connection
+  - Updated Connection to work with buffered input
+    - Read operations work seamlessly with BufferedSocket
+    - Handle transition from buffered to direct socket reads
+    - Maintain performance for non-buffered connections
+  - Added prior knowledge client support
+    - Added use_prior_knowledge option to Client
+    - Skip upgrade negotiation when enabled
+    - Send preface immediately after connecting
+    - Cache prior knowledge support per host
+  - Created comprehensive tests
+    - Test BufferedSocket peek functionality (spec/buffered_socket_spec.cr)
+    - Test connection type detection logic (spec/h2c_detection_spec.cr)
+    - Test prior knowledge server handling (spec/h2c_prior_knowledge_spec.cr)
+    - Test prior knowledge client connections
+    - Test mixed connection types (upgrade and prior knowledge)
+  - Updated examples and documentation
+    - Added prior knowledge example (examples/h2c_prior_knowledge_example.cr)
+    - Documented when to use prior knowledge vs upgrade
+    - Added curl examples with --http2-prior-knowledge

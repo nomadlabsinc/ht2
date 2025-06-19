@@ -46,11 +46,11 @@ module HT2
         @running = false
       end
 
-      # Wait for all workers to finish current tasks
-      wait_for_completion
+      # Send nil to all workers to signal shutdown first
+      @max_workers.times { @queue.send(nil) rescue nil }
 
-      # Send nil to all workers to signal shutdown
-      @max_workers.times { @queue.send(nil) }
+      # Then wait for completion with a timeout
+      wait_for_completion(timeout: 1.second)
     end
 
     def submit(task : Task) : Nil
@@ -147,14 +147,14 @@ module HT2
       end
     end
 
-    private def wait_for_completion : Nil
-      deadline = Time.utc + 30.seconds
+    private def wait_for_completion(timeout : Time::Span = 30.seconds) : Nil
+      deadline = Time.utc + timeout
 
       loop do
         break if @active_count.get == 0 && queue_depth == 0
         break if Time.utc > deadline
 
-        sleep 100.milliseconds
+        sleep 10.milliseconds
       end
     end
   end

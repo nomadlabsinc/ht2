@@ -19,46 +19,46 @@ This document tracks remaining tasks for the HT2 HTTP/2 server implementation.
 ## ⚙️ Configuration
 
 ### Direct HTTP/2 Prior Knowledge Support (RFC 7540 Section 3.4)
-- [ ] Implement connection type detection without consuming data
-  - [ ] Create BufferedSocket wrapper that allows peeking at initial bytes
-  - [ ] Implement peek(n) method that doesn't consume bytes from socket
-  - [ ] Handle both IO::Buffered and raw socket types
-  - [ ] Ensure thread-safe operation for concurrent connections
-- [ ] Detect HTTP/2 connection preface (PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n)
-  - [ ] Check first 24 bytes for exact match
-  - [ ] Distinguish from HTTP/1.1 methods (GET, POST, etc.)
-  - [ ] Handle partial reads gracefully
-- [ ] Create routing logic in Server#handle_h2c_client
-  - [ ] Peek at first bytes to detect connection type
-  - [ ] Route to handle_h2c_prior_knowledge for HTTP/2 preface
-  - [ ] Route to handle_h2c_upgrade for HTTP/1.1 requests
-  - [ ] Handle edge cases (empty reads, timeouts, errors)
-- [ ] Implement handle_h2c_prior_knowledge method
-  - [ ] Skip HTTP/1.1 upgrade negotiation entirely
-  - [ ] Create Connection with buffered socket containing preface
-  - [ ] Let Connection.start() consume the preface normally
-  - [ ] Apply default settings for the connection
-- [ ] Update Connection to work with buffered input
-  - [ ] Ensure read operations work with BufferedSocket
-  - [ ] Handle transition from buffered to direct socket reads
-  - [ ] Maintain performance for non-buffered connections
-- [ ] Add prior knowledge client support
-  - [ ] Add use_prior_knowledge option to Client
-  - [ ] Skip upgrade negotiation when enabled
-  - [ ] Send preface immediately after connecting
-  - [ ] Cache prior knowledge support per host
-- [ ] Create comprehensive tests
-  - [ ] Test BufferedSocket peek functionality
-  - [ ] Test connection type detection logic
-  - [ ] Test prior knowledge server handling
-  - [ ] Test prior knowledge client connections
-  - [ ] Test mixed connection types (upgrade and prior knowledge)
-  - [ ] Performance tests to ensure no regression
-- [ ] Update examples and documentation
-  - [ ] Add prior knowledge example server
-  - [ ] Add prior knowledge example client
-  - [ ] Document when to use prior knowledge vs upgrade
-  - [ ] Add curl examples with --http2-prior-knowledge
+- [x] Implement connection type detection without consuming data
+  - [x] Create BufferedSocket wrapper that allows peeking at initial bytes
+  - [x] Implement peek(n) method that doesn't consume bytes from socket
+  - [x] Handle both IO::Buffered and raw socket types
+  - [x] Ensure thread-safe operation for concurrent connections
+- [x] Detect HTTP/2 connection preface (PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n)
+  - [x] Check first 24 bytes for exact match
+  - [x] Distinguish from HTTP/1.1 methods (GET, POST, etc.)
+  - [x] Handle partial reads gracefully
+- [x] Create routing logic in Server#handle_h2c_client
+  - [x] Peek at first bytes to detect connection type
+  - [x] Route to handle_h2c_prior_knowledge for HTTP/2 preface
+  - [x] Route to handle_h2c_upgrade for HTTP/1.1 requests
+  - [x] Handle edge cases (empty reads, timeouts, errors)
+- [x] Implement handle_h2c_prior_knowledge method
+  - [x] Skip HTTP/1.1 upgrade negotiation entirely
+  - [x] Create Connection with buffered socket containing preface
+  - [x] Let Connection.start() consume the preface normally
+  - [x] Apply default settings for the connection
+- [x] Update Connection to work with buffered input
+  - [x] Ensure read operations work with BufferedSocket
+  - [x] Handle transition from buffered to direct socket reads
+  - [x] Maintain performance for non-buffered connections
+- [x] Add prior knowledge client support
+  - [x] Add use_prior_knowledge option to Client
+  - [x] Skip upgrade negotiation when enabled
+  - [x] Send preface immediately after connecting
+  - [x] Cache prior knowledge support per host
+- [x] Create comprehensive tests
+  - [x] Test BufferedSocket peek functionality
+  - [x] Test connection type detection logic
+  - [x] Test prior knowledge server handling
+  - [x] Test prior knowledge client connections
+  - [x] Test mixed connection types (upgrade and prior knowledge)
+  - [x] Performance tests to ensure no regression
+- [x] Update examples and documentation
+  - [x] Add prior knowledge example server
+  - [x] Add prior knowledge example client
+  - [x] Document when to use prior knowledge vs upgrade
+  - [x] Add curl examples with --http2-prior-knowledge
 
 
 ## 🚀 Performance Optimizations
