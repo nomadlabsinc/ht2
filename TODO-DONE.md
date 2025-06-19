@@ -255,6 +255,35 @@ This document tracks completed development tasks for the HT2 HTTP/2 library.
   - Included best practices section for common patterns
   - Comprehensive error handling examples and patterns
 
+- [x] **Add integration guide for web frameworks** - Current Branch
+  - Created comprehensive framework integration guide (docs/INTEGRATION_GUIDE.md)
+  - Documented core integration concepts and handler pattern
+  - Added detailed Lucky framework integration section
+    - Step-by-step adapter creation
+    - TLS configuration examples
+    - Server push support in Lucky actions
+  - Added complete Kemal framework integration section
+    - Handler chain integration
+    - WebSocket over HTTP/2 support
+    - Static file serving with server push
+  - Created generic HTTP handler integration section
+    - Basic handler wrapper implementation
+    - Middleware chain support
+    - Composable handler patterns
+  - Added advanced topics coverage
+    - Stream priority handling
+    - Flow control management
+    - Connection metrics access
+    - Custom server settings
+    - H2C (HTTP/2 Clear Text) configuration
+  - Included migration guide from HTTP/1.1
+    - Assessment checklist
+    - Configuration updates
+    - HTTP/2 feature adoption
+    - Performance tuning recommendations
+    - Common pitfalls and solutions
+  - Added testing instructions for integration verification
+
 ## ✅ HTTP/2 Clear Text (h2c) Support
 
 - [x] **HTTP/2 Clear Text (h2c) Support for Proxy Deployments** - Commit: <current>
