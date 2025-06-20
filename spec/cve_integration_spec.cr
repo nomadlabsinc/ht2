@@ -121,31 +121,27 @@ describe "HTTP/2 CVE Integration Tests" do
     it "protects against CVE-2019-9511 Data Dribble (small DATA frames)" do
       port : Int32 = 9301
       server_ready = Channel(Nil).new
-      server_done = Channel(Nil).new
       request_count = 0
       mutex = Mutex.new
 
-      spawn do
-        handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
-          mutex.synchronize { request_count += 1 }
-          response.status = 200
-          response.write("OK")
-          response.close
-        end
+      handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
+        mutex.synchronize { request_count += 1 }
+        response.status = 200
+        response.write("OK")
+        response.close
+      end
 
-        server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
-        spawn do
-          server_ready.send(nil)
-          server.listen
-        end
-
-        server_done.receive
-        server.close
+      server_fiber = spawn do
+        server_ready.send(nil)
+        server.listen
+      rescue ex
+        # Ignore errors when server is closed
       end
 
       server_ready.receive
-      sleep 0.2.seconds
+      sleep 0.1.seconds
 
       begin
         # Connect with raw socket to send malicious frames
@@ -210,37 +206,34 @@ describe "HTTP/2 CVE Integration Tests" do
           # Ignore SSL shutdown and IO errors
         end
       ensure
-        server_done.send(nil)
+        server.close
+        sleep 0.1.seconds
       end
     end
 
     it "protects against CVE-2019-9512 Ping Flood" do
       port : Int32 = 9302
       server_ready = Channel(Nil).new
-      server_done = Channel(Nil).new
       ping_error_received = false
       mutex = Mutex.new
 
-      spawn do
-        handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
-          response.status = 200
-          response.write("OK")
-          response.close
-        end
+      handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
+        response.status = 200
+        response.write("OK")
+        response.close
+      end
 
-        server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
-        spawn do
-          server_ready.send(nil)
-          server.listen
-        end
-
-        server_done.receive
-        server.close
+      server_fiber = spawn do
+        server_ready.send(nil)
+        server.listen
+      rescue ex
+        # Ignore errors when server is closed
       end
 
       server_ready.receive
-      sleep 0.2.seconds
+      sleep 0.1.seconds
 
       begin
         # Connect with raw socket
@@ -301,37 +294,34 @@ describe "HTTP/2 CVE Integration Tests" do
           # Ignore SSL shutdown and IO errors
         end
       ensure
-        server_done.send(nil)
+        server.close
+        sleep 0.1.seconds
       end
     end
 
     it "protects against CVE-2019-9514 Reset Flood" do
       port : Int32 = 9303
       server_ready = Channel(Nil).new
-      server_done = Channel(Nil).new
       error_received = false
       mutex = Mutex.new
 
-      spawn do
-        handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
-          response.status = 200
-          response.write("OK")
-          response.close
-        end
+      handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
+        response.status = 200
+        response.write("OK")
+        response.close
+      end
 
-        server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
-        spawn do
-          server_ready.send(nil)
-          server.listen
-        end
-
-        server_done.receive
-        server.close
+      server_fiber = spawn do
+        server_ready.send(nil)
+        server.listen
+      rescue ex
+        # Ignore errors when server is closed
       end
 
       server_ready.receive
-      sleep 0.2.seconds
+      sleep 0.1.seconds
 
       begin
         socket = TCPSocket.new("localhost", port)
@@ -409,37 +399,34 @@ describe "HTTP/2 CVE Integration Tests" do
           # Ignore SSL shutdown and IO errors
         end
       ensure
-        server_done.send(nil)
+        server.close
+        sleep 0.1.seconds
       end
     end
 
     it "protects against CVE-2019-9515 Settings Flood" do
       port : Int32 = 9304
       server_ready = Channel(Nil).new
-      server_done = Channel(Nil).new
       error_received = false
       mutex = Mutex.new
 
-      spawn do
-        handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
-          response.status = 200
-          response.write("OK")
-          response.close
-        end
+      handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
+        response.status = 200
+        response.write("OK")
+        response.close
+      end
 
-        server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
-        spawn do
-          server_ready.send(nil)
-          server.listen
-        end
-
-        server_done.receive
-        server.close
+      server_fiber = spawn do
+        server_ready.send(nil)
+        server.listen
+      rescue ex
+        # Ignore errors when server is closed
       end
 
       server_ready.receive
-      sleep 0.2.seconds
+      sleep 0.1.seconds
 
       begin
         socket = TCPSocket.new("localhost", port)
@@ -496,35 +483,32 @@ describe "HTTP/2 CVE Integration Tests" do
           # Ignore SSL shutdown and IO errors
         end
       ensure
-        server_done.send(nil)
+        server.close
+        sleep 0.1.seconds
       end
     end
 
     it "protects against CVE-2019-9516 0-Length Headers Leak" do
       port : Int32 = 9305
       server_ready = Channel(Nil).new
-      server_done = Channel(Nil).new
 
-      spawn do
-        handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
-          response.status = 200
-          response.write("OK")
-          response.close
-        end
+      handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
+        response.status = 200
+        response.write("OK")
+        response.close
+      end
 
-        server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
-        spawn do
-          server_ready.send(nil)
-          server.listen
-        end
-
-        server_done.receive
-        server.close
+      server_fiber = spawn do
+        server_ready.send(nil)
+        server.listen
+      rescue ex
+        # Ignore errors when server is closed
       end
 
       server_ready.receive
-      sleep 0.2.seconds
+      sleep 0.1.seconds
 
       begin
         # Test that server handles empty header names properly
@@ -573,37 +557,34 @@ describe "HTTP/2 CVE Integration Tests" do
           # Ignore SSL shutdown and IO errors
         end
       ensure
-        server_done.send(nil)
+        server.close
+        sleep 0.1.seconds
       end
     end
 
     it "protects against CVE-2019-9517 Internal Data Buffering (window overflow)" do
       port : Int32 = 9306
       server_ready = Channel(Nil).new
-      server_done = Channel(Nil).new
       error_received = false
       mutex = Mutex.new
 
-      spawn do
-        handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
-          response.status = 200
-          response.write("OK")
-          response.close
-        end
+      handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
+        response.status = 200
+        response.write("OK")
+        response.close
+      end
 
-        server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
-        spawn do
-          server_ready.send(nil)
-          server.listen
-        end
-
-        server_done.receive
-        server.close
+      server_fiber = spawn do
+        server_ready.send(nil)
+        server.listen
+      rescue ex
+        # Ignore errors when server is closed
       end
 
       server_ready.receive
-      sleep 0.2.seconds
+      sleep 0.1.seconds
 
       begin
         socket = TCPSocket.new("localhost", port)
@@ -663,35 +644,32 @@ describe "HTTP/2 CVE Integration Tests" do
           # Ignore SSL shutdown and IO errors
         end
       ensure
-        server_done.send(nil)
+        server.close
+        sleep 0.1.seconds
       end
     end
 
     it "protects against CVE-2019-9518 Empty Frames Flood" do
       port : Int32 = 9307
       server_ready = Channel(Nil).new
-      server_done = Channel(Nil).new
 
-      spawn do
-        handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
-          response.status = 200
-          response.write("OK")
-          response.close
-        end
+      handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
+        response.status = 200
+        response.write("OK")
+        response.close
+      end
 
-        server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
-        spawn do
-          server_ready.send(nil)
-          server.listen
-        end
-
-        server_done.receive
-        server.close
+      server_fiber = spawn do
+        server_ready.send(nil)
+        server.listen
+      rescue ex
+        # Ignore errors when server is closed
       end
 
       server_ready.receive
-      sleep 0.2.seconds
+      sleep 0.1.seconds
 
       begin
         socket = TCPSocket.new("localhost", port)
@@ -757,7 +735,8 @@ describe "HTTP/2 CVE Integration Tests" do
           # Ignore SSL shutdown and IO errors
         end
       ensure
-        server_done.send(nil)
+        server.close
+        sleep 0.1.seconds
       end
     end
   end
@@ -766,28 +745,24 @@ describe "HTTP/2 CVE Integration Tests" do
     it "protects against HPACK bomb attack" do
       port : Int32 = 9308
       server_ready = Channel(Nil).new
-      server_done = Channel(Nil).new
 
-      spawn do
-        handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
-          response.status = 200
-          response.write("OK")
-          response.close
-        end
+      handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
+        response.status = 200
+        response.write("OK")
+        response.close
+      end
 
-        server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
-        spawn do
-          server_ready.send(nil)
-          server.listen
-        end
-
-        server_done.receive
-        server.close
+      server_fiber = spawn do
+        server_ready.send(nil)
+        server.listen
+      rescue ex
+        # Ignore errors when server is closed
       end
 
       server_ready.receive
-      sleep 0.2.seconds
+      sleep 0.1.seconds
 
       begin
         socket = TCPSocket.new("localhost", port)
@@ -862,7 +837,8 @@ describe "HTTP/2 CVE Integration Tests" do
           # Ignore SSL shutdown and IO errors
         end
       ensure
-        server_done.send(nil)
+        server.close
+        sleep 0.1.seconds
       end
     end
   end
@@ -871,30 +847,26 @@ describe "HTTP/2 CVE Integration Tests" do
     it "protects against rapid reset attack" do
       port : Int32 = 9309
       server_ready = Channel(Nil).new
-      server_done = Channel(Nil).new
 
-      spawn do
-        handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
-          # Simulate slow processing
-          sleep 0.1.seconds
-          response.status = 200
-          response.write("OK")
-          response.close
-        end
+      handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
+        # Simulate slow processing
+        sleep 0.1.seconds
+        response.status = 200
+        response.write("OK")
+        response.close
+      end
 
-        server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
-        spawn do
-          server_ready.send(nil)
-          server.listen
-        end
-
-        server_done.receive
-        server.close
+      server_fiber = spawn do
+        server_ready.send(nil)
+        server.listen
+      rescue ex
+        # Ignore errors when server is closed
       end
 
       server_ready.receive
-      sleep 0.2.seconds
+      sleep 0.1.seconds
 
       begin
         socket = TCPSocket.new("localhost", port)
@@ -952,7 +924,8 @@ describe "HTTP/2 CVE Integration Tests" do
           # Ignore SSL shutdown and IO errors
         end
       ensure
-        server_done.send(nil)
+        server.close
+        sleep 0.1.seconds
       end
     end
   end
@@ -961,28 +934,24 @@ describe "HTTP/2 CVE Integration Tests" do
     it "protects against CONTINUATION flood attack" do
       port : Int32 = 9310
       server_ready = Channel(Nil).new
-      server_done = Channel(Nil).new
 
-      spawn do
-        handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
-          response.status = 200
-          response.write("OK")
-          response.close
-        end
+      handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
+        response.status = 200
+        response.write("OK")
+        response.close
+      end
 
-        server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
-        spawn do
-          server_ready.send(nil)
-          server.listen
-        end
-
-        server_done.receive
-        server.close
+      server_fiber = spawn do
+        server_ready.send(nil)
+        server.listen
+      rescue ex
+        # Ignore errors when server is closed
       end
 
       server_ready.receive
-      sleep 0.2.seconds
+      sleep 0.1.seconds
 
       begin
         socket = TCPSocket.new("localhost", port)
@@ -1060,35 +1029,32 @@ describe "HTTP/2 CVE Integration Tests" do
           # Ignore SSL shutdown and IO errors
         end
       ensure
-        server_done.send(nil)
+        server.close
+        sleep 0.1.seconds
       end
     end
 
     it "protects against CONTINUATION frames without proper HEADERS" do
       port : Int32 = 9311
       server_ready = Channel(Nil).new
-      server_done = Channel(Nil).new
 
-      spawn do
-        handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
-          response.status = 200
-          response.write("OK")
-          response.close
-        end
+      handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
+        response.status = 200
+        response.write("OK")
+        response.close
+      end
 
-        server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
-        spawn do
-          server_ready.send(nil)
-          server.listen
-        end
-
-        server_done.receive
-        server.close
+      server_fiber = spawn do
+        server_ready.send(nil)
+        server.listen
+      rescue ex
+        # Ignore errors when server is closed
       end
 
       server_ready.receive
-      sleep 0.2.seconds
+      sleep 0.1.seconds
 
       begin
         socket = TCPSocket.new("localhost", port)
@@ -1128,7 +1094,8 @@ describe "HTTP/2 CVE Integration Tests" do
           # Ignore SSL shutdown and IO errors
         end
       ensure
-        server_done.send(nil)
+        server.close
+        sleep 0.1.seconds
       end
     end
   end
@@ -1137,30 +1104,26 @@ describe "HTTP/2 CVE Integration Tests" do
     it "enforces maximum concurrent streams limit" do
       port : Int32 = 9312
       server_ready = Channel(Nil).new
-      server_done = Channel(Nil).new
 
-      spawn do
-        handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
-          # Hold connection open
-          sleep 1.second
-          response.status = 200
-          response.write("OK")
-          response.close
-        end
+      handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
+        # Hold connection open
+        sleep 1.second
+        response.status = 200
+        response.write("OK")
+        response.close
+      end
 
-        server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
-        spawn do
-          server_ready.send(nil)
-          server.listen
-        end
-
-        server_done.receive
-        server.close
+      server_fiber = spawn do
+        server_ready.send(nil)
+        server.listen
+      rescue ex
+        # Ignore errors when server is closed
       end
 
       server_ready.receive
-      sleep 0.2.seconds
+      sleep 0.1.seconds
 
       begin
         socket = TCPSocket.new("localhost", port)
@@ -1216,35 +1179,32 @@ describe "HTTP/2 CVE Integration Tests" do
           # Ignore SSL shutdown and IO errors
         end
       ensure
-        server_done.send(nil)
+        server.close
+        sleep 0.1.seconds
       end
     end
 
     it "validates frame sizes against MAX_FRAME_SIZE" do
       port : Int32 = 9313
       server_ready = Channel(Nil).new
-      server_done = Channel(Nil).new
 
-      spawn do
-        handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
-          response.status = 200
-          response.write("OK")
-          response.close
-        end
+      handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
+        response.status = 200
+        response.write("OK")
+        response.close
+      end
 
-        server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
+      server = HT2::Server.new("localhost", port, handler, tls_context: create_test_tls_context)
 
-        spawn do
-          server_ready.send(nil)
-          server.listen
-        end
-
-        server_done.receive
-        server.close
+      server_fiber = spawn do
+        server_ready.send(nil)
+        server.listen
+      rescue ex
+        # Ignore errors when server is closed
       end
 
       server_ready.receive
-      sleep 0.2.seconds
+      sleep 0.1.seconds
 
       begin
         socket = TCPSocket.new("localhost", port)
@@ -1290,7 +1250,8 @@ describe "HTTP/2 CVE Integration Tests" do
           # Ignore SSL shutdown and IO errors
         end
       ensure
-        server_done.send(nil)
+        server.close
+        sleep 0.1.seconds
       end
     end
   end

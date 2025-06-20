@@ -58,7 +58,10 @@ module HT2
         @port = server.local_address.port
       end
 
-      puts "HTTP/2 server listening on #{@host}:#{@port}"
+      # Disable output during tests
+      unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+        puts "HTTP/2 server listening on #{@host}:#{@port}"
+      end
 
       while @running
         begin
@@ -67,7 +70,9 @@ module HT2
 
           spawn handle_client(client)
         rescue ex
-          puts "Error accepting client: #{ex.message}"
+          unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+            puts "Error accepting client: #{ex.message}"
+          end
         end
       end
     ensure
@@ -83,8 +88,16 @@ module HT2
     end
 
     private def handle_client(socket : TCPSocket)
+      spawn do
+        handle_client_internal(socket)
+      end
+    end
+
+    private def handle_client_internal(socket : TCPSocket)
       # Extract client IP address
       client_ip = socket.remote_address.address
+      connection : Connection? = nil
+      client_socket : IO? = nil
 
       # Handle h2c mode
       if @enable_h2c && !@tls_context
@@ -104,7 +117,9 @@ module HT2
       # Verify ALPN negotiation for TLS connections
       if client_socket.is_a?(OpenSSL::SSL::Socket::Server)
         unless client_socket.alpn_protocol == "h2"
-          puts "Client did not negotiate HTTP/2 via ALPN"
+          unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+            puts "Client did not negotiate HTTP/2 via ALPN"
+          end
           client_socket.close
           return
         end
@@ -142,9 +157,29 @@ module HT2
 
       # Start connection
       connection.start
+
+      # Wait for connection to close
+      while !connection.closed?
+        sleep 0.1.seconds
+      end
+    rescue ex : ConnectionError
+      # Expected protocol errors
+      Log.debug { "Connection error: #{ex.message}" }
+      unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+        puts "Error handling client: #{ex.message}"
+      end
+    rescue ex : OpenSSL::SSL::Error
+      # SSL errors (like health checks with plain TCP)
+      Log.debug { "SSL error (possibly health check): #{ex.message}" }
+      # Don't print SSL errors in test context as they're often from health checks
     rescue ex
-      puts "Error handling client: #{ex.message}"
+      # Unexpected errors
+      Log.error { "Unexpected error handling client: #{ex.class} - #{ex.message}" }
+      unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+        puts "Error handling client: #{ex.message}"
+      end
     ensure
+      # Clean up
       @connections.delete(connection) if connection
       begin
         client_socket.close if client_socket
@@ -179,7 +214,9 @@ module HT2
     rescue IO::TimeoutError
       send_http1_error(socket, 408, "Request Timeout")
     rescue ex
-      puts "Error in h2c handler: #{ex.message}"
+      unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+        puts "Error in h2c handler: #{ex.message}"
+      end
       socket.close rescue nil
     end
 
@@ -195,7 +232,9 @@ module HT2
       # Start connection (will read preface from buffered socket)
       connection.start
     rescue ex
-      puts "Error handling h2c prior knowledge: #{ex.message}"
+      unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+        puts "Error handling h2c prior knowledge: #{ex.message}"
+      end
     ensure
       @connections.delete(connection) if connection
     end
@@ -249,7 +288,9 @@ module HT2
         send_http1_error(socket, 505, "HTTP Version Not Supported")
       end
     rescue ex
-      puts "Error handling h2c upgrade: #{ex.message}"
+      unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+        puts "Error handling h2c upgrade: #{ex.message}"
+      end
     ensure
       @connections.delete(connection) if connection
     end

@@ -153,15 +153,26 @@ module HT2
     end
 
     def start : Nil
+      Log.debug { "Connection.start called, is_server=#{@is_server}" }
+
       if @is_server
         # Server waits for client preface
+        Log.debug { "Reading client preface..." }
         read_client_preface
+        Log.debug { "Client preface read successfully" }
       else
         # Client sends preface
         send_client_preface
       end
 
+      Log.debug { "Starting without preface..." }
       start_without_preface
+      Log.debug { "Connection started successfully" }
+    rescue ex : IO::Error
+      # Log the error for debugging
+      Log.debug { "Connection start failed: #{ex.message}" }
+      close
+      raise ex
     end
 
     # Start connection without reading/sending preface (used for h2c upgrade)
@@ -551,12 +562,17 @@ module HT2
     private def read_client_preface
       preface = Bytes.new(CONNECTION_PREFACE.bytesize)
       begin
+        Log.debug { "Attempting to read #{CONNECTION_PREFACE.bytesize} bytes for preface" }
         @socket.read_fully(preface)
+        Log.debug { "Read preface bytes: #{preface.hexstring}" }
       rescue ex : IO::Error
+        Log.debug { "Failed to read preface: #{ex.class} - #{ex.message}" }
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Failed to read client preface: #{ex.message}")
       end
 
-      if String.new(preface) != CONNECTION_PREFACE
+      preface_string = String.new(preface)
+      if preface_string != CONNECTION_PREFACE
+        Log.debug { "Invalid preface. Expected: #{CONNECTION_PREFACE.inspect}, Got: #{preface_string.inspect}" }
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Invalid client preface")
       end
 
@@ -637,8 +653,11 @@ module HT2
             end
           end
         rescue ex : IO::Error
+          # Log IO errors for debugging
+          Log.debug { "Read loop IO error: #{ex.message}" }
           break
         rescue ex : ConnectionError
+          Log.debug { "Read loop connection error: #{ex.code} - #{ex.message}" }
           send_goaway(ex.code, ex.message || "")
           # Allow time for GOAWAY to be sent
           sleep 0.1.seconds
@@ -727,6 +746,13 @@ module HT2
 
       stream = get_or_create_stream(frame.stream_id)
 
+      Log.debug do
+        "HEADERS frame: stream_id=#{frame.stream_id}, flags=#{frame.flags}, " \
+        "padding=#{frame.padding}, priority=#{frame.priority.inspect}, " \
+        "header_block_size=#{frame.header_block.size}"
+      end
+      Log.debug { "Full header block hex: #{frame.header_block.hexstring}" }
+
       if priority = frame.priority
         stream.receive_priority(priority)
       end
@@ -734,7 +760,14 @@ module HT2
       if frame.flags.end_headers?
         # Complete headers
         begin
+          Log.debug { "Decoding HEADERS frame with block size: #{frame.header_block.size}" }
+          Log.debug do
+            "First 20 bytes of header block: " \
+            "#{frame.header_block[0...20]?.try(&.hexstring) || "less than 20 bytes"}"
+          end
+
           headers = @hpack_decoder.decode(frame.header_block)
+          Log.debug { "Decoded headers: #{headers.inspect}" }
           stream.receive_headers(headers, frame.flags.end_stream?)
 
           # Record headers received for rapid reset protection
@@ -745,6 +778,8 @@ module HT2
           end
         rescue ex : HPACK::DecompressionError
           # HPACK decompression failed - protocol error
+          Log.error { "HPACK decompression error: #{ex.message}" }
+          Log.debug { "Failed header block hex: #{frame.header_block.hexstring}" }
           if ex.message.try(&.includes?("Headers size exceeds maximum"))
             @performance_metrics.security_events.record_header_size_violation
           end
