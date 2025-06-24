@@ -5,7 +5,7 @@
 
 # Libraries don't need dependency lock
 # Uncomment this if you want to commit the lock file
-/shard.lock
+# /shard.lock
 
 # crystal-lang extensions
 *.cr.swp

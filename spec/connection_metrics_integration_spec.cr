@@ -136,20 +136,39 @@ describe "Connection Metrics Integration" do
     server_conn = HT2::Connection.new(server_socket, is_server: true)
     client_conn = HT2::Connection.new(client_socket, is_server: false)
 
-    spawn { server_conn.start }
-    client_conn.start
+    server_started = Channel(Nil).new
+    client_started = Channel(Nil).new
 
-    # Give connections time to exchange settings
-    sleep 0.1.seconds
+    spawn do
+      server_conn.start
+      server_started.send(nil)
+    end
+
+    spawn do
+      client_conn.start
+      client_started.send(nil)
+    end
+
+    # Wait for initial settings exchange
+    sleep 0.2.seconds
 
     # Close client connection (should send GOAWAY)
     client_conn.close
 
-    # Give time for GOAWAY to be received
-    sleep 0.1.seconds
+    # Give time for GOAWAY to be sent and received
+    sleep 0.2.seconds
 
     # Check metrics
     client_metrics = client_conn.metrics.snapshot
+
+    # Debug output if test fails
+    unless client_metrics[:state][:goaway_sent]
+      puts "Debug: client goaway_sent flag = #{client_conn.goaway_sent?}"
+      puts "Debug: client closed flag = #{client_conn.closed?}"
+      puts "Debug: client metrics = #{client_metrics[:state]}"
+      puts "Debug: frames sent = #{client_metrics[:frames][:sent]}"
+    end
+
     client_metrics[:state][:goaway_sent].should be_true
 
     # Server should have received GOAWAY

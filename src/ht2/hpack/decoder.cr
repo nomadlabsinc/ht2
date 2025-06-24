@@ -77,8 +77,9 @@ module HT2
           self.max_table_size = new_size
         else
           # Literal header field without indexing
-          never_index = (first_byte & 0x10) != 0
-          index = decode_integer(io, first_byte, never_index ? 4 : 6)
+          # never_index = (first_byte & 0x10) != 0  # TODO: Use for caching decisions
+          # Both literal without indexing patterns use 4-bit index
+          index = decode_integer(io, first_byte, 4)
 
           if index == 0
             # New name
@@ -161,7 +162,12 @@ module HT2
         huffman = (first_byte & 0x80) != 0
         length = decode_integer(io, first_byte, 7)
 
-        if length > io.size - io.pos
+        remaining = io.size - io.pos
+        if length > remaining
+          Log.error do
+            "String decode error: length=#{length}, remaining=#{remaining}, " \
+            "io.pos=#{io.pos}, io.size=#{io.size}"
+          end
           raise DecompressionError.new("String length exceeds remaining data")
         end
 

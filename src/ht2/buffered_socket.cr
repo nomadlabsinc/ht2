@@ -1,5 +1,6 @@
 require "openssl"
 require "socket"
+require "log"
 
 module HT2
   # BufferedSocket wraps an IO to provide peeking functionality
@@ -41,11 +42,20 @@ module HT2
         slice[0, buffered_bytes].copy_from(@buffer[@buffer_pos, buffered_bytes])
         @buffer_pos += buffered_bytes
         bytes_read += buffered_bytes
+
+        # Clear buffer when fully consumed
+        if @buffer_pos >= @buffer_size
+          @buffer_pos = 0
+          @buffer_size = 0
+        end
       end
 
       # If more bytes needed, read directly from IO
       if bytes_read < slice.size
-        direct_bytes = @io.read(slice[bytes_read, slice.size - bytes_read])
+        remaining = slice.size - bytes_read
+        Log.debug { "BufferedSocket: Reading #{remaining} bytes directly from IO" }
+        direct_bytes = @io.read(slice[bytes_read, remaining])
+        Log.debug { "BufferedSocket: Read #{direct_bytes} bytes from IO" }
         bytes_read += direct_bytes
       end
 
@@ -68,6 +78,22 @@ module HT2
 
     def flush : Nil
       @io.flush
+    end
+
+    # Override read_fully to ensure it works correctly with buffering
+    def read_fully(slice : Bytes) : Int32
+      return slice.size if slice.empty?
+
+      total_read = 0
+      while total_read < slice.size
+        bytes_read = read(slice[total_read, slice.size - total_read])
+        if bytes_read == 0
+          raise IO::EOFError.new("Unexpected EOF while reading")
+        end
+        total_read += bytes_read
+      end
+
+      total_read
     end
 
     private def ensure_buffered(n : Int32, timeout : Time::Span? = nil) : Nil

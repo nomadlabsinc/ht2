@@ -1,0 +1,38 @@
+# Simplified Docker image using robnomad/crystal:dev-hoard
+FROM robnomad/crystal:dev-hoard
+
+WORKDIR /app
+
+# The dev-hoard image should already have most dependencies
+# Install Python and test dependencies
+RUN apk add --no-cache python3 py3-pip && \
+    pip3 install --break-system-packages "httpx[http2]" h2 || pip3 install "httpx[http2]" h2
+
+# Install curl and h2spec if not already present
+RUN apk add --no-cache curl && \
+    (which h2spec || (curl -L https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz -o h2spec.tar.gz && \
+    tar -xzf h2spec.tar.gz && \
+    mv h2spec /usr/local/bin/ && \
+    chmod +x /usr/local/bin/h2spec && \
+    rm h2spec.tar.gz))
+
+# Copy dependency files first for better caching
+COPY shard.yml shard.lock ./
+RUN shards install --production
+
+# Copy source code
+COPY . .
+
+# Generate test certificates
+RUN mkdir -p /certs && \
+    openssl req -x509 -newkey rsa:2048 -keyout /certs/server.key -out /certs/server.crt \
+    -days 365 -nodes -subj "/CN=localhost" && \
+    openssl req -x509 -newkey rsa:2048 -keyout /certs/client.key -out /certs/client.crt \
+    -days 365 -nodes -subj "/CN=client" && \
+    chmod 644 /certs/*
+
+# Set environment for faster builds
+ENV CRYSTAL_CACHE_DIR=/tmp/.crystal
+ENV CRYSTAL_WORKERS=4
+
+CMD ["crystal", "spec", "--no-color"]

@@ -153,15 +153,26 @@ module HT2
     end
 
     def start : Nil
+      Log.debug { "Connection.start called, is_server=#{@is_server}" }
+
       if @is_server
         # Server waits for client preface
+        Log.debug { "Reading client preface..." }
         read_client_preface
+        Log.debug { "Client preface read successfully" }
       else
         # Client sends preface
         send_client_preface
       end
 
+      Log.debug { "Starting without preface..." }
       start_without_preface
+      Log.debug { "Connection started successfully" }
+    rescue ex : IO::Error
+      # Log the error for debugging
+      Log.debug { "Connection start failed: #{ex.message}" }
+      close
+      raise ex
     end
 
     # Start connection without reading/sending preface (used for h2c upgrade)
@@ -180,8 +191,12 @@ module HT2
         when timeout(HT2::SETTINGS_ACK_TIMEOUT)
           # Timeout waiting for SETTINGS ACK
           unless @closed
-            send_goaway(ErrorCode::SETTINGS_TIMEOUT, "Settings acknowledgment timeout")
-            close
+            begin
+              send_goaway(ErrorCode::SETTINGS_TIMEOUT, "Settings acknowledgment timeout")
+              close
+            rescue IO::Error
+              # Connection already closed, ignore
+            end
           end
         end
       end
@@ -193,15 +208,17 @@ module HT2
 
     def close : Nil
       return if @closed
-      @closed = true
 
       unless @goaway_sent
         begin
           send_goaway(ErrorCode::NO_ERROR)
         rescue ex : IO::Error
           # Socket already closed, ignore
+          Log.debug { "Failed to send GOAWAY on close: #{ex.message}" }
         end
       end
+
+      @closed = true
 
       begin
         @socket.close
@@ -474,11 +491,16 @@ module HT2
     end
 
     def send_goaway(error_code : ErrorCode, debug_data : String = "") : Nil
-      return if @goaway_sent
+      return if @goaway_sent || @closed
 
       @goaway_sent = true
       frame = GoAwayFrame.new(@last_stream_id, error_code, debug_data.to_slice)
-      send_frame(frame)
+      begin
+        send_frame(frame)
+      rescue ex : IO::Error
+        # Socket already closed, ignore
+        Log.debug { "Failed to send GOAWAY: #{ex.message}" }
+      end
     end
 
     def update_settings(settings : SettingsFrame::Settings) : Channel(Nil)
@@ -528,8 +550,14 @@ module HT2
         # ACK received
       when timeout(HT2::SETTINGS_ACK_TIMEOUT)
         @pending_settings.delete(ack_channel)
-        send_goaway(ErrorCode::SETTINGS_TIMEOUT, "Settings acknowledgment timeout")
-        close
+        unless @closed
+          begin
+            send_goaway(ErrorCode::SETTINGS_TIMEOUT, "Settings acknowledgment timeout")
+            close
+          rescue IO::Error
+            # Connection already closed, ignore
+          end
+        end
       end
     end
 
@@ -551,12 +579,17 @@ module HT2
     private def read_client_preface
       preface = Bytes.new(CONNECTION_PREFACE.bytesize)
       begin
+        Log.debug { "Attempting to read #{CONNECTION_PREFACE.bytesize} bytes for preface" }
         @socket.read_fully(preface)
+        Log.debug { "Read preface bytes: #{preface.hexstring}" }
       rescue ex : IO::Error
+        Log.debug { "Failed to read preface: #{ex.class} - #{ex.message}" }
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Failed to read client preface: #{ex.message}")
       end
 
-      if String.new(preface) != CONNECTION_PREFACE
+      preface_string = String.new(preface)
+      if preface_string != CONNECTION_PREFACE
+        Log.debug { "Invalid preface. Expected: #{CONNECTION_PREFACE.inspect}, Got: #{preface_string.inspect}" }
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Invalid client preface")
       end
 
@@ -575,11 +608,18 @@ module HT2
     end
 
     private def read_loop
+      Log.debug { "Read loop started for connection #{@connection_id}" }
       loop do
         begin
           # Read frame header using buffer pool
           header_bytes = @buffer_pool.acquire(Frame::HEADER_SIZE)
-          @socket.read_fully(header_bytes)
+          Log.debug { "Reading frame header..." }
+          begin
+            @socket.read_fully(header_bytes)
+          rescue ex : IO::Error
+            Log.debug { "Failed to read frame header: #{ex.message}" }
+            raise ex
+          end
 
           length, _, _, stream_id = Frame.parse_header(header_bytes)
 
@@ -624,10 +664,17 @@ module HT2
           @performance_metrics.record_bytes_received((Frame::HEADER_SIZE + length).to_u64)
 
           handle_frame(frame)
+          Log.debug { "Successfully handled frame: #{frame.class} on stream #{frame.stream_id}" }
 
           # Release buffers back to pool
           @buffer_pool.release(header_bytes)
           @buffer_pool.release(full_frame)
+
+          # Check if we should continue reading
+          if @closed || @goaway_sent
+            Log.debug { "Connection closed or GOAWAY sent, exiting read loop" }
+            break
+          end
 
           # Periodically adapt read buffer size
           if @adaptive_buffer_manager.should_adapt?
@@ -637,20 +684,29 @@ module HT2
             end
           end
         rescue ex : IO::Error
+          # Log IO errors for debugging
+          Log.debug { "Read loop IO error: #{ex.class} - #{ex.message}" }
+          Log.debug { "Socket closed: #{@socket.closed?}" } rescue nil
           break
         rescue ex : ConnectionError
+          Log.debug { "Read loop connection error: #{ex.code} - #{ex.message}" }
           send_goaway(ex.code, ex.message || "")
           # Allow time for GOAWAY to be sent
           sleep 0.1.seconds
           break
         rescue ex : StreamError
+          Log.debug { "Read loop stream error: #{ex.stream_id} - #{ex.code} - #{ex.message}" }
           stream = @streams[ex.stream_id]?
           stream.try(&.send_rst_stream(ex.code))
-          # Allow time for RST_STREAM to be sent
-          sleep 0.05.seconds
+          # Flush the frame immediately instead of sleeping
+          @socket.flush rescue nil
+        rescue ex
+          Log.error { "Read loop unexpected error: #{ex.class} - #{ex.message}" }
+          raise ex
         end
       end
     ensure
+      Log.debug { "Read loop exiting, closing connection" }
       close
     end
 
@@ -727,6 +783,13 @@ module HT2
 
       stream = get_or_create_stream(frame.stream_id)
 
+      Log.debug do
+        "HEADERS frame: stream_id=#{frame.stream_id}, flags=#{frame.flags}, " \
+        "padding=#{frame.padding}, priority=#{frame.priority.inspect}, " \
+        "header_block_size=#{frame.header_block.size}"
+      end
+      Log.debug { "Full header block hex: #{frame.header_block.hexstring}" }
+
       if priority = frame.priority
         stream.receive_priority(priority)
       end
@@ -734,7 +797,14 @@ module HT2
       if frame.flags.end_headers?
         # Complete headers
         begin
+          Log.debug { "Decoding HEADERS frame with block size: #{frame.header_block.size}" }
+          Log.debug do
+            "First 20 bytes of header block: " \
+            "#{frame.header_block[0...20]?.try(&.hexstring) || "less than 20 bytes"}"
+          end
+
           headers = @hpack_decoder.decode(frame.header_block)
+          Log.debug { "Decoded headers: #{headers.inspect}" }
           stream.receive_headers(headers, frame.flags.end_stream?)
 
           # Record headers received for rapid reset protection
@@ -745,6 +815,8 @@ module HT2
           end
         rescue ex : HPACK::DecompressionError
           # HPACK decompression failed - protocol error
+          Log.error { "HPACK decompression error: #{ex.message}" }
+          Log.debug { "Failed header block hex: #{frame.header_block.hexstring}" }
           if ex.message.try(&.includes?("Headers size exceeds maximum"))
             @performance_metrics.security_events.record_header_size_violation
           end
@@ -846,7 +918,13 @@ module HT2
     private def handle_settings_frame(frame : SettingsFrame)
       if frame.flags.ack?
         # Settings acknowledged - notify the oldest pending settings
-        @settings_ack_channel.send(nil)
+        # Use non-blocking send to avoid deadlock when no fiber is waiting
+        select
+        when @settings_ack_channel.send(nil)
+          # Successfully notified
+        else
+          # No fiber waiting, which is fine
+        end
 
         # Also notify any pending update_settings calls
         if channel = @pending_settings.shift?
@@ -863,7 +941,9 @@ module HT2
         begin
           apply_remote_settings(frame.settings)
           # Send ACK only if all settings were successfully applied
+          Log.debug { "Sending SETTINGS ACK" }
           send_frame(SettingsFrame.new(FrameFlags::ACK))
+          Log.debug { "SETTINGS ACK sent" }
         rescue ex : ConnectionError
           # Settings validation failed - send GOAWAY
           send_goaway(ex.code, ex.message || "")
@@ -920,6 +1000,8 @@ module HT2
     end
 
     private def handle_window_update_frame(frame : WindowUpdateFrame)
+      Log.debug { "Received WINDOW_UPDATE: stream_id=#{frame.stream_id}, increment=#{frame.window_size_increment}" }
+
       if frame.stream_id == 0
         # Connection window update with checked arithmetic
         increment = frame.window_size_increment.to_i64
@@ -936,6 +1018,7 @@ module HT2
         end
 
         @window_size = new_window
+        Log.debug { "Connection window updated to #{@window_size}" }
       else
         # Stream window update
         stream = get_stream(frame.stream_id)

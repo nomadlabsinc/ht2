@@ -45,9 +45,9 @@ module HT2
 
       # Length (24 bits)
       length = data.size
-      header[0] = (length >> 16).to_u8
-      header[1] = (length >> 8).to_u8
-      header[2] = length.to_u8
+      header[0] = ((length >> 16) & 0xFF).to_u8
+      header[1] = ((length >> 8) & 0xFF).to_u8
+      header[2] = (length & 0xFF).to_u8
 
       # Type (8 bits) - DATA frame
       header[3] = FrameType::DATA.value
@@ -56,10 +56,10 @@ module HT2
       header[4] = flags.value
 
       # Stream ID (32 bits)
-      header[5] = (stream_id >> 24).to_u8
-      header[6] = (stream_id >> 16).to_u8
-      header[7] = (stream_id >> 8).to_u8
-      header[8] = stream_id.to_u8
+      header[5] = ((stream_id >> 24) & 0xFF).to_u8
+      header[6] = ((stream_id >> 16) & 0xFF).to_u8
+      header[7] = ((stream_id >> 8) & 0xFF).to_u8
+      header[8] = (stream_id & 0xFF).to_u8
 
       # Write without copying data
       io.write(header)

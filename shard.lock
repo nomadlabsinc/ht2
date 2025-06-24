@@ -1,0 +1,14 @@
+version: 2.0
+shards:
+  ameba:
+    git: https://github.com/crystal-ameba/ameba.git
+    version: 1.6.4
+
+  h2o:
+    git: https://github.com/nomadlabsinc/h2o.git
+    version: 0.1.0+git.commit.f26f9cdd1d27914f4942e57b4bf80ee394ef9f6f
+
+  spectator:
+    git: https://gitlab.com/arctic-fox/spectator.git
+    version: 0.12.1
+

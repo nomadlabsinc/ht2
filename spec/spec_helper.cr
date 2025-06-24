@@ -1,6 +1,8 @@
 require "spec"
 require "../src/ht2"
 require "./test_helper"
+require "./spec_cleanup_helper"
+require "./test_timeout_helper"
 
 # Helper methods for tests
 def create_test_bytes(size : Int32) : Bytes

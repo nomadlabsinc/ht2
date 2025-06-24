@@ -3,7 +3,7 @@ require "./spec_helper"
 describe HT2::H2C do
   describe ".detect_connection_type" do
     it "detects HTTP/2 prior knowledge connection" do
-      preface_bytes = HT2::H2C::H2_PREFACE.to_slice
+      preface_bytes = HT2::CONNECTION_PREFACE.to_slice
       HT2::H2C.detect_connection_type(preface_bytes).should eq HT2::H2C::ConnectionType::H2PriorKnowledge
     end
 
@@ -35,7 +35,7 @@ describe HT2::H2C do
 
   describe ".h2_prior_knowledge?" do
     it "returns true for valid H2 preface" do
-      preface = HT2::H2C::H2_PREFACE.to_slice
+      preface = HT2::CONNECTION_PREFACE.to_slice
       HT2::H2C.h2_prior_knowledge?(preface).should be_true
     end
 
@@ -64,7 +64,7 @@ describe HT2::H2C do
     end
 
     it "returns false for H2 preface" do
-      preface = HT2::H2C::H2_PREFACE.to_slice
+      preface = HT2::CONNECTION_PREFACE.to_slice
       HT2::H2C.http1_request?(preface).should be_false
     end
   end
