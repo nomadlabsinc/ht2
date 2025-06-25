@@ -1,4 +1,5 @@
 require "http"
+require "log"
 
 module HT2
   class Response
@@ -8,14 +9,14 @@ module HT2
     getter? closed : Bool
 
     @headers_sent : Bool
-    @body : IO::Memory
+    @data_sending : Bool
 
     def initialize(@stream : Stream)
       @headers = HTTP::Headers.new
       @status = 200
       @closed = false
       @headers_sent = false
-      @body = IO::Memory.new
+      @data_sending = false
     end
 
     def status=(@status : Int32)
@@ -37,7 +38,14 @@ module HT2
         send_headers(end_stream: false)
       end
 
-      @body.write(data)
+      # Send data immediately instead of buffering
+      # Use chunked sending for large data to handle flow control
+      if data.size > 0
+        Log.debug { "Response.write: Sending #{data.size} bytes of data" }
+        # Use larger chunks to avoid exhausting the window too quickly
+        # The default window size is 65535, so use 32768 to allow 2 chunks
+        @stream.send_data_chunked(data, chunk_size: 32_768, end_stream: false)
+      end
     end
 
     def close : Nil
@@ -45,15 +53,11 @@ module HT2
       @closed = true
 
       if @headers_sent
-        # Send any remaining body data
-        body_data = @body.to_slice
-        if body_data.size > 0
-          @stream.send_data(body_data, end_stream: true)
-        else
-          # Send empty DATA frame with END_STREAM
-          @stream.send_data(Bytes.empty, end_stream: true)
-        end
+        Log.debug { "Response.close: Sending empty DATA frame with END_STREAM" }
+        # Send empty DATA frame with END_STREAM to close the stream
+        @stream.send_data(Bytes.empty, end_stream: true)
       else
+        Log.debug { "Response.close: Sending headers with END_STREAM" }
         # Send headers with END_STREAM
         send_headers(end_stream: true)
       end
@@ -74,7 +78,9 @@ module HT2
       # Copy body if any
       if body = lucky_response.@output
         body.rewind
-        IO.copy(body, response)
+        # Read body into a temporary buffer and write it
+        body_content = body.gets_to_end
+        response.write(body_content) unless body_content.empty?
       end
 
       response
@@ -106,17 +112,7 @@ module HT2
       end
 
       # Send HEADERS frame
-      if end_stream && @body.size == 0
-        @stream.send_headers(header_list, end_stream: true)
-      else
-        @stream.send_headers(header_list, end_stream: false)
-
-        # Send body data if we're closing
-        if end_stream
-          body_data = @body.to_slice
-          @stream.send_data(body_data, end_stream: true)
-        end
-      end
+      @stream.send_headers(header_list, end_stream: end_stream)
     end
 
     private def connection_specific_header?(name : String) : Bool
@@ -136,7 +132,7 @@ module HT2
         end
       end
       io << "\r\n"
-      io.write(@body.to_slice)
+      # Note: Response body is not buffered, it's sent directly to the stream
     end
   end
 end

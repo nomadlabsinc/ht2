@@ -1,4 +1,5 @@
 require "openssl"
+require "log"
 require "./connection"
 require "./h2c"
 require "./worker_pool"
@@ -26,6 +27,8 @@ module HT2
     @running : Bool = false
     @connections : Set(Connection)
     @worker_pool : WorkerPool
+    @client_fibers : Set(Fiber)
+    @shutdown_channel : Channel(Nil)
 
     def initialize(@host : String, @port : Int32, @handler : Handler,
                    @enable_h2c : Bool = false,
@@ -41,6 +44,8 @@ module HT2
                    @worker_queue_size : Int32 = 1000)
       @connections = Set(Connection).new
       @worker_pool = WorkerPool.new(@max_workers, @worker_queue_size)
+      @client_fibers = Set(Fiber).new
+      @shutdown_channel = Channel(Nil).new
 
       # Configure ALPN for HTTP/2 if TLS is enabled
       if context = @tls_context
@@ -58,7 +63,10 @@ module HT2
         @port = server.local_address.port
       end
 
-      puts "HTTP/2 server listening on #{@host}:#{@port}"
+      # Disable output during tests
+      unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+        puts "HTTP/2 server listening on #{@host}:#{@port}"
+      end
 
       while @running
         begin
@@ -67,7 +75,9 @@ module HT2
 
           spawn handle_client(client)
         rescue ex
-          puts "Error accepting client: #{ex.message}"
+          unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+            puts "Error accepting client: #{ex.message}"
+          end
         end
       end
     ensure
@@ -75,16 +85,42 @@ module HT2
     end
 
     def close : Nil
+      return unless @running
       @running = false
-      @worker_pool.stop
-      # Close the server socket to unblock accept
+
+      # Close the server socket first to prevent new connections
       @server.try(&.close)
+
+      # Signal all client fibers to stop
+      @client_fibers.size.times { @shutdown_channel.send(nil) rescue nil }
+
+      # Close all connections
       @connections.each(&.close)
+
+      # Stop worker pool
+      @worker_pool.stop
+
+      # Wait for client fibers to finish with timeout
+      deadline = Time.monotonic + 2.seconds
+      while @client_fibers.size > 0 && Time.monotonic < deadline
+        sleep 10.milliseconds
+      end
     end
 
     private def handle_client(socket : TCPSocket)
+      fiber = spawn do
+        handle_client_internal(socket)
+      ensure
+        @client_fibers.delete(Fiber.current)
+      end
+      @client_fibers << fiber
+    end
+
+    private def handle_client_internal(socket : TCPSocket)
       # Extract client IP address
       client_ip = socket.remote_address.address
+      connection : Connection? = nil
+      client_socket : IO? = nil
 
       # Handle h2c mode
       if @enable_h2c && !@tls_context
@@ -104,7 +140,9 @@ module HT2
       # Verify ALPN negotiation for TLS connections
       if client_socket.is_a?(OpenSSL::SSL::Socket::Server)
         unless client_socket.alpn_protocol == "h2"
-          puts "Client did not negotiate HTTP/2 via ALPN"
+          unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+            puts "Client did not negotiate HTTP/2 via ALPN"
+          end
           client_socket.close
           return
         end
@@ -142,9 +180,34 @@ module HT2
 
       # Start connection
       connection.start
+
+      # Wait for connection to close or shutdown signal
+      loop do
+        select
+        when @shutdown_channel.receive?
+          break
+        when timeout(0.1.seconds)
+          break if connection.closed?
+        end
+      end
+    rescue ex : ConnectionError
+      # Expected protocol errors
+      Log.debug { "Connection error: #{ex.message}" }
+      unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+        puts "Error handling client: #{ex.message}"
+      end
+    rescue ex : OpenSSL::SSL::Error
+      # SSL errors (like health checks with plain TCP)
+      Log.debug { "SSL error (possibly health check): #{ex.message}" }
+      # Don't print SSL errors in test context as they're often from health checks
     rescue ex
-      puts "Error handling client: #{ex.message}"
+      # Unexpected errors
+      Log.error { "Unexpected error handling client: #{ex.class} - #{ex.message}" }
+      unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+        puts "Error handling client: #{ex.message}"
+      end
     ensure
+      # Clean up
       @connections.delete(connection) if connection
       begin
         client_socket.close if client_socket
@@ -179,7 +242,9 @@ module HT2
     rescue IO::TimeoutError
       send_http1_error(socket, 408, "Request Timeout")
     rescue ex
-      puts "Error in h2c handler: #{ex.message}"
+      unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+        puts "Error in h2c handler: #{ex.message}"
+      end
       socket.close rescue nil
     end
 
@@ -192,10 +257,38 @@ module HT2
       # Configure connection settings
       configure_connection(connection)
 
+      # Set up stream handler
+      connection.on_headers = ->(stream : Stream, _headers : Array(Tuple(String, String)), end_stream : Bool) do
+        if end_stream || stream.request_headers
+          # We have complete headers, process request
+          submit_stream_task(connection, stream)
+        end
+      end
+
+      connection.on_data = ->(stream : Stream, _data : Bytes, end_stream : Bool) do
+        # Data is accumulated in the stream
+        if end_stream && stream.request_headers
+          # Request is complete
+          submit_stream_task(connection, stream)
+        end
+      end
+
       # Start connection (will read preface from buffered socket)
       connection.start
+
+      # Wait for connection to close or shutdown signal
+      loop do
+        select
+        when @shutdown_channel.receive?
+          break
+        when timeout(0.1.seconds)
+          break if connection.closed?
+        end
+      end
     rescue ex
-      puts "Error handling h2c prior knowledge: #{ex.message}"
+      unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+        puts "Error handling h2c prior knowledge: #{ex.message}"
+      end
     ensure
       @connections.delete(connection) if connection
     end
@@ -238,18 +331,46 @@ module HT2
         # Apply remote settings from upgrade
         connection.apply_remote_settings(remote_settings) if remote_settings
 
+        # Set up stream handler
+        connection.on_headers = ->(stream : Stream, _headers : Array(Tuple(String, String)), end_stream : Bool) do
+          if end_stream || stream.request_headers
+            # We have complete headers, process request
+            submit_stream_task(connection, stream)
+          end
+        end
+
+        connection.on_data = ->(stream : Stream, _data : Bytes, end_stream : Bool) do
+          # Data is accumulated in the stream
+          if end_stream && stream.request_headers
+            # Request is complete
+            submit_stream_task(connection, stream)
+          end
+        end
+
         # Process the upgrade request as stream 1
         process_upgrade_request(connection, headers)
 
         # For h2c upgrade, start without reading preface
         # The connection has already been established via HTTP/1.1 upgrade
         connection.start_without_preface
+
+        # Wait for connection to close or shutdown signal
+        loop do
+          select
+          when @shutdown_channel.receive?
+            break
+          when timeout(0.1.seconds)
+            break if connection.closed?
+          end
+        end
       else
         # Not an upgrade request, send error
         send_http1_error(socket, 505, "HTTP Version Not Supported")
       end
     rescue ex
-      puts "Error handling h2c upgrade: #{ex.message}"
+      unless ENV["CRYSTAL_SPEC_CONTEXT"]?
+        puts "Error handling h2c upgrade: #{ex.message}"
+      end
     ensure
       @connections.delete(connection) if connection
     end
@@ -359,15 +480,21 @@ module HT2
     rescue ex : StreamError
       # Stream error already handled by connection
     rescue ex
-      # Send internal server error
-      begin
-        response = Response.new(stream)
-        response.status = 500
-        response.headers["content-type"] = "text/plain"
-        response.write("Internal Server Error".to_slice)
-        response.close
-      rescue
-        # Best effort, ignore errors
+      # Log the error with backtrace
+      Log.error { "Error handling request: #{ex.message}\n#{ex.backtrace.join("\n")}" }
+
+      # Only try to send error response if headers haven't been sent
+      if response && !response.closed?
+        begin
+          # Try to close the response gracefully
+          response.close
+        rescue
+          # If that fails, reset the stream
+          stream.send_rst_stream(ErrorCode::INTERNAL_ERROR)
+        end
+      else
+        # Headers already sent or response closed, reset the stream
+        stream.send_rst_stream(ErrorCode::INTERNAL_ERROR)
       end
     end
 

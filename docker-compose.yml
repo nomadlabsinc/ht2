@@ -1,0 +1,51 @@
+# Docker Compose configuration for HT2 CI/testing
+
+services:
+  test:
+    build:
+      context: .
+      target: test
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: crystal spec
+    environment:
+      - LOG_LEVEL=DEBUG
+
+  test-1.15:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        CRYSTAL_VERSION: "1.15"
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: crystal spec
+
+  test-1.16:
+    build:
+      context: .
+      dockerfile: Dockerfile.1.16
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: crystal spec
+
+  lint:
+    build:
+      context: .
+      target: test
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: ameba src spec --except Metrics/CyclomaticComplexity
+
+  format-check:
+    build:
+      context: .
+      target: test
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: crystal tool format --check

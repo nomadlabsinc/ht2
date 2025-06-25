@@ -1,6 +1,7 @@
 require "./adaptive_flow_control"
 require "./security"
 require "./stream_state_machine"
+require "log"
 
 module HT2
   enum StreamState
@@ -70,6 +71,11 @@ module HT2
     def send_data(data : Bytes, end_stream : Bool = false) : Nil
       @state_machine.validate_send_data
 
+      Log.debug do
+        "Stream.send_data: size=#{data.size}, send_window=#{@send_window_size}, " \
+        "conn_window=#{@connection.window_size}"
+      end
+
       # Check flow control window
       if data.size > @send_window_size
         raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR, "Data size exceeds window")
@@ -116,7 +122,10 @@ module HT2
 
     private def get_adaptive_chunk_size(default_size : Int32) : Int32
       if buffer_mgr = @connection.adaptive_buffer_manager
-        available_window = Math.min(@send_window_size.to_i32, @connection.window_size.to_i32)
+        # Safely handle window sizes, clamping to valid Int32 range
+        send_window = @send_window_size.clamp(0_i64, Int32::MAX.to_i64).to_i32
+        conn_window = @connection.window_size.clamp(0_i64, Int32::MAX.to_i64).to_i32
+        available_window = Math.min(send_window, conn_window)
         buffer_mgr.recommended_chunk_size(available_window)
       else
         default_size
@@ -125,33 +134,49 @@ module HT2
 
     private def send_chunks(chunk_size : Int32, data : Bytes, end_stream : Bool) : Nil
       offset = 0
+      Log.debug { "Stream.send_chunks: Starting to send #{data.size} bytes in chunks of #{chunk_size}" }
+
       while offset < data.size
         available = calculate_available_size(chunk_size)
 
         if available <= 0
+          Log.debug { "Stream.send_chunks: No window available, waiting..." }
           wait_for_window
           next
         end
 
         offset = send_chunk(available, data, end_stream, offset)
       end
+
+      Log.debug { "Stream.send_chunks: Finished sending all chunks" }
     end
 
     private def calculate_available_size(chunk_size : Int32) : Int32
+      # Safely handle window sizes, clamping to valid Int32 range
+      send_window = @send_window_size.clamp(0_i64, Int32::MAX.to_i64).to_i32
+      conn_window = @connection.window_size.clamp(0_i64, Int32::MAX.to_i64).to_i32
+
       Math.min(
-        Math.min(chunk_size, @send_window_size.to_i32),
-        @connection.window_size.to_i32
+        Math.min(chunk_size, send_window),
+        conn_window
       )
     end
 
     private def wait_for_window : Nil
-      sleep 10.milliseconds
+      # Yield to allow other fibers (including the read loop) to run
+      Fiber.yield
+      sleep 1.millisecond
     end
 
     private def send_chunk(available : Int32, data : Bytes, end_stream : Bool, offset : Int32) : Int32
       chunk_end = Math.min(offset + available, data.size)
       chunk = data[offset...chunk_end]
       is_last_chunk = chunk_end >= data.size
+
+      Log.debug do
+        "Stream.send_chunk: Sending chunk from #{offset} to #{chunk_end} " \
+        "(#{chunk.size} bytes), last_chunk=#{is_last_chunk}"
+      end
       send_data(chunk, end_stream && is_last_chunk)
       chunk_end
     end

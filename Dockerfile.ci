@@ -1,0 +1,60 @@
+# CI-optimized Docker image using robnomad/crystal:dev-hoard
+FROM robnomad/crystal:dev-hoard
+
+WORKDIR /app
+
+# Install required system packages for tests
+RUN apk add --no-cache \
+    bash \
+    openssl \
+    openssl-dev \
+    python3 \
+    py3-pip \
+    nodejs \
+    npm \
+    curl \
+    git \
+    make
+
+# Install Python packages
+RUN pip3 install "httpx[http2]" h2 || \
+    pip3 install --break-system-packages "httpx[http2]" h2
+
+# Install h2spec for HTTP/2 conformance testing (skip for now, needs glibc)
+# RUN curl -L https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz -o h2spec.tar.gz && \
+#     tar -xzf h2spec.tar.gz && \
+#     mv h2spec /usr/local/bin/ && \
+#     chmod +x /usr/local/bin/h2spec && \
+#     rm h2spec.tar.gz
+
+# Copy dependency files first for better caching
+COPY shard.yml shard.lock ./
+RUN shards install
+
+# Copy source code
+COPY . .
+
+# Generate test certificates
+RUN mkdir -p /certs && \
+    openssl req -x509 -newkey rsa:2048 -keyout /certs/server.key -out /certs/server.crt \
+    -days 365 -nodes -subj "/CN=localhost" && \
+    openssl req -x509 -newkey rsa:2048 -keyout /certs/client.key -out /certs/client.crt \
+    -days 365 -nodes -subj "/CN=client" && \
+    chmod 644 /certs/*
+
+# Create necessary directories
+RUN mkdir -p /tmp/.crystal
+
+# Set environment
+ENV CRYSTAL_CACHE_DIR=/tmp/.crystal
+ENV CRYSTAL_WORKERS=4
+ENV TEST_CERT_PATH=/certs
+
+# Verify setup
+RUN crystal --version && \
+    shards --version && \
+    python3 -c "import httpx; print('httpx ready')" && \
+    ls -la /certs/ && \
+    echo "h2spec installed at: $(which h2spec || echo 'not found')"
+
+CMD ["crystal", "spec", "--no-color"]

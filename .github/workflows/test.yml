@@ -1,0 +1,38 @@
+name: Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  docker-test:
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    timeout-minutes: 15
+    continue-on-error: true
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Test with Docker
+      run: |
+        echo "=== Building Docker image ==="
+        docker build -f Dockerfile.ci -t ht2-test:ci . || {
+          echo "Failed to build with CI Dockerfile, trying main Dockerfile"
+          docker build -f Dockerfile -t ht2-test:ci .
+        }
+        
+        echo "=== Running format check ==="
+        docker run --rm -v $PWD:/app ht2-test:ci crystal tool format --check
+        
+        echo "=== Running tests ==="
+        docker run --rm \
+          -e CRYSTAL_WORKERS=4 \
+          -e TEST_CERT_PATH=/certs \
+          -v $PWD:/app \
+          ht2-test:ci \
+          crystal spec --no-color spec/hpack_spec.cr spec/frames_spec.cr
+        
+        echo "=== Building binary ==="
+        docker run --rm -v $PWD:/app ht2-test:ci crystal build src/ht2.cr

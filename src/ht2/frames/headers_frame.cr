@@ -99,7 +99,20 @@ module HT2
 
       # Extract header block
       header_block_size = payload.size - offset - padding
+
+      # Debug logging for HEADERS frame parsing
+      Log.debug do
+        "HEADERS frame parsing: payload_size=#{payload.size}, offset=#{offset}, " \
+        "padding=#{padding}, header_block_size=#{header_block_size}"
+      end
+
+      # Validate header block size
+      if header_block_size < 0
+        raise ConnectionError.new(ErrorCode::FRAME_SIZE_ERROR, "Invalid header block size: #{header_block_size}")
+      end
+
       header_block = payload[offset, header_block_size]
+      Log.debug { "Header block hex: #{header_block.hexstring}" }
 
       HeadersFrame.new(stream_id, header_block, flags, padding, priority)
     end

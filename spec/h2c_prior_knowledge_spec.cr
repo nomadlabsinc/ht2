@@ -1,7 +1,7 @@
 require "./spec_helper"
 
 describe "H2C Prior Knowledge" do
-  pending "handles h2c prior knowledge connections" do
+  it "handles h2c prior knowledge connections" do
     server = HT2::Server.new(
       enable_h2c: true,
       handler: ->(request : HT2::Request, response : HT2::Response) {
@@ -18,25 +18,22 @@ describe "H2C Prior Knowledge" do
     end
 
     # Wait for server to start
-    sleep 0.1
-
-    # Test prior knowledge client connection
-    client = HT2::Client.new(
-      enable_h2c: true,
-      use_prior_knowledge: true
-    )
+    sleep 0.1.seconds
 
     begin
-      response = client.get("http://127.0.0.1:#{server.port}/test")
-      response.status.should eq 200
-      response.body.should eq "Prior knowledge: /test"
+      # Test prior knowledge client connection using curl
+      # --http2-prior-knowledge forces HTTP/2 without upgrade
+      output = `curl -s --http2-prior-knowledge http://127.0.0.1:#{server.port}/test`
+      status = $?.exit_code
+
+      status.should eq 0
+      output.should eq "Prior knowledge: /test"
     ensure
-      client.close
       server.close
     end
   end
 
-  pending "falls back to upgrade when prior knowledge fails" do
+  it "handles h2c upgrade from HTTP/1.1" do
     server = HT2::Server.new(
       enable_h2c: true,
       handler: ->(request : HT2::Request, response : HT2::Response) {
@@ -53,25 +50,22 @@ describe "H2C Prior Knowledge" do
     end
 
     # Wait for server to start
-    sleep 0.1
-
-    # Client without prior knowledge
-    client = HT2::Client.new(
-      enable_h2c: true,
-      use_prior_knowledge: false
-    )
+    sleep 0.1.seconds
 
     begin
-      response = client.get("http://127.0.0.1:#{server.port}/fallback")
-      response.status.should eq 200
-      response.body.should eq "Upgrade: /fallback"
+      # Test h2c upgrade using curl
+      # --http2 allows upgrade from HTTP/1.1
+      output = `curl -s --http2 http://127.0.0.1:#{server.port}/upgrade`
+      status = $?.exit_code
+
+      status.should eq 0
+      output.should eq "Upgrade: /upgrade"
     ensure
-      client.close
       server.close
     end
   end
 
-  pending "caches h2c support per host" do
+  it "serves HTTP/2 clients with different connection methods" do
     request_count = 0
 
     server = HT2::Server.new(
@@ -91,27 +85,23 @@ describe "H2C Prior Knowledge" do
     end
 
     # Wait for server to start
-    sleep 0.1
-
-    client = HT2::Client.new(
-      enable_h2c: true,
-      use_prior_knowledge: false
-    )
+    sleep 0.1.seconds
 
     begin
-      # First request - should use upgrade
-      response1 = client.get("http://127.0.0.1:#{server.port}/req1")
-      response1.status.should eq 200
+      # First request - HTTP/2 with upgrade
+      output1 = `curl -s --http2 http://127.0.0.1:#{server.port}/req1`
+      status1 = $?.exit_code
 
-      # Second request - should use cached support info
-      response2 = client.get("http://127.0.0.1:#{server.port}/req2")
-      response2.status.should eq 200
+      status1.should eq 0
+      output1.should eq "Request 1"
 
-      # Both requests should succeed
-      response1.body.should eq "Request 1"
-      response2.body.should eq "Request 2"
+      # Second request - HTTP/2 with prior knowledge
+      output2 = `curl -s --http2-prior-knowledge http://127.0.0.1:#{server.port}/req2`
+      status2 = $?.exit_code
+
+      status2.should eq 0
+      output2.should eq "Request 2"
     ensure
-      client.close
       server.close
     end
   end

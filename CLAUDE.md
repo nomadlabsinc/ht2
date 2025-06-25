@@ -28,6 +28,7 @@ Adhere to these principles to ensure a high-quality, performant, and maintainabl
     *   Write tests *before* or concurrently with implementation.
     *   Ensure high unit test coverage for all components.
     *   Develop robust integration tests against real and mock servers.
+    *   **Always run tests inside Docker to guarantee deterministic environments.**
 
 5.  **Observability & Debugging:**
     *   Integrate Crystal's `Log` module for structured logging. Define log levels (e.g., `DEBUG`, `INFO`, `WARN`, `ERROR`) and allow configuration via environment variables (e.g., `LOG_LEVEL`).
@@ -180,3 +181,4 @@ require "./services/*"
 [... rest of the existing content remains the same ...]
 
 - **Alphabetize arguments, `require` ordering, and constants in methods and classes wherever possible. Use explicit types for all crystal code.**
+```

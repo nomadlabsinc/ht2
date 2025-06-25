@@ -5,31 +5,46 @@ require "openssl"
 def create_test_tls_context : OpenSSL::SSL::Context::Server
   context = OpenSSL::SSL::Context::Server.new
 
-  # Generate self-signed certificate using OpenSSL command line
-  temp_key_file = "#{Dir.tempdir}/test_key_#{Random.rand(100000)}.pem"
-  temp_cert_file = "#{Dir.tempdir}/test_cert_#{Random.rand(100000)}.pem"
+  # Check if pre-generated certificates exist (Docker environment)
+  cert_path = ENV["TEST_CERT_PATH"]? || "/certs"
+  cert_file = "#{cert_path}/server.crt"
+  key_file = "#{cert_path}/server.key"
 
-  begin
-    # Generate RSA key
-    system("openssl genrsa -out #{temp_key_file} 2048 2>/dev/null")
+  if File.exists?(cert_file) && File.exists?(key_file)
+    # Use pre-generated certificates
+    context.certificate_chain = cert_file
+    context.private_key = key_file
+  else
+    # Generate self-signed certificate on the fly
+    temp_dir = ENV["TMPDIR"]? || Dir.tempdir
+    temp_key_file = "#{temp_dir}/test_key_#{Random.rand(100000)}.pem"
+    temp_cert_file = "#{temp_dir}/test_cert_#{Random.rand(100000)}.pem"
 
-    # Generate self-signed certificate
-    system("openssl req -new -x509 -key #{temp_key_file} -out #{temp_cert_file} -days 365 -subj '/CN=localhost' 2>/dev/null")
+    begin
+      # Ensure temp directory exists
+      Dir.mkdir_p(temp_dir) unless Dir.exists?(temp_dir)
 
-    # Configure context
-    context.certificate_chain = temp_cert_file
-    context.private_key = temp_key_file
-    context.alpn_protocol = "h2"
+      # Generate RSA key
+      system("openssl genrsa -out #{temp_key_file} 2048 2>/dev/null")
 
-    context
-  ensure
-    # Clean up temp files after context is configured
-    spawn do
-      sleep 1.second
-      File.delete(temp_key_file) if File.exists?(temp_key_file)
-      File.delete(temp_cert_file) if File.exists?(temp_cert_file)
+      # Generate self-signed certificate
+      system("openssl req -new -x509 -key #{temp_key_file} -out #{temp_cert_file} -days 365 -subj '/CN=localhost' 2>/dev/null")
+
+      # Configure context
+      context.certificate_chain = temp_cert_file
+      context.private_key = temp_key_file
+    ensure
+      # Clean up temp files after context is configured
+      spawn do
+        sleep 0.1.seconds
+        File.delete(temp_key_file) if File.exists?(temp_key_file)
+        File.delete(temp_cert_file) if File.exists?(temp_cert_file)
+      end
     end
   end
+
+  context.alpn_protocol = "h2"
+  context
 end
 
 describe "HT2 Integration Tests" do
@@ -63,7 +78,7 @@ describe "HT2 Integration Tests" do
 
     # Wait for server to start
     server_ready.receive
-    sleep 0.2.seconds
+    sleep 0.1.seconds
 
     # Verify server started
     request_received.should be_false
@@ -100,7 +115,7 @@ describe "HT2 Integration Tests" do
     end
 
     server_ready.receive
-    sleep 0.2.seconds
+    sleep 0.1.seconds
 
     # Server is ready to accept connections
     received_body.should eq("")
@@ -140,7 +155,7 @@ describe "HT2 Integration Tests" do
     end
 
     server_ready.receive
-    sleep 0.2.seconds
+    sleep 0.1.seconds
 
     # Server ready, no requests yet
     mutex.synchronize { request_count }.should eq(0)
@@ -185,7 +200,7 @@ describe "HT2 Integration Tests" do
     end
 
     server_ready.receive
-    sleep 0.2.seconds
+    sleep 0.1.seconds
 
     handler_called.should be_false
 
@@ -223,7 +238,7 @@ describe "HT2 Integration Tests" do
     end
 
     server_ready.receive
-    sleep 0.2.seconds
+    sleep 0.1.seconds
 
     headers_processed.should be_false
 
@@ -266,7 +281,7 @@ describe "HT2 Integration Tests" do
     end
 
     server_ready.receive
-    sleep 0.2.seconds
+    sleep 0.1.seconds
 
     error_path_called.should be_false
 

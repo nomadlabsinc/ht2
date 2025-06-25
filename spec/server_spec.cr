@@ -38,24 +38,40 @@ describe HT2::Server do
 
   describe "TLS context creation" do
     it "can create TLS context from certificate files" do
-      # Generate test certificate files
-      temp_key_file = "#{Dir.tempdir}/test_key_#{Random.rand(100000)}.pem"
-      temp_cert_file = "#{Dir.tempdir}/test_cert_#{Random.rand(100000)}.pem"
+      # Check for pre-generated certificates first (Docker environment)
+      cert_path = ENV["TEST_CERT_PATH"]? || "/certs"
+      cert_file = "#{cert_path}/server.crt"
+      key_file = "#{cert_path}/server.key"
 
-      begin
-        # Generate RSA key
-        system("openssl genrsa -out #{temp_key_file} 2048 2>/dev/null")
-
-        # Generate self-signed certificate
-        system("openssl req -new -x509 -key #{temp_key_file} -out #{temp_cert_file} -days 1 -subj '/CN=localhost' 2>/dev/null")
-
-        # Create TLS context
-        context = HT2::Server.create_tls_context(temp_cert_file, temp_key_file)
+      if File.exists?(cert_file) && File.exists?(key_file)
+        # Use pre-generated certificates
+        context = HT2::Server.create_tls_context(cert_file, key_file)
         context.should_not be_nil
         context.should be_a(OpenSSL::SSL::Context::Server)
-      ensure
-        File.delete(temp_key_file) if File.exists?(temp_key_file)
-        File.delete(temp_cert_file) if File.exists?(temp_cert_file)
+      else
+        # Generate test certificate files
+        temp_dir = ENV["TMPDIR"]? || Dir.tempdir
+        temp_key_file = "#{temp_dir}/test_key_#{Random.rand(100000)}.pem"
+        temp_cert_file = "#{temp_dir}/test_cert_#{Random.rand(100000)}.pem"
+
+        begin
+          # Ensure temp directory exists
+          Dir.mkdir_p(temp_dir) unless Dir.exists?(temp_dir)
+
+          # Generate RSA key
+          system("openssl genrsa -out #{temp_key_file} 2048 2>/dev/null")
+
+          # Generate self-signed certificate
+          system("openssl req -new -x509 -key #{temp_key_file} -out #{temp_cert_file} -days 1 -subj '/CN=localhost' 2>/dev/null")
+
+          # Create TLS context
+          context = HT2::Server.create_tls_context(temp_cert_file, temp_key_file)
+          context.should_not be_nil
+          context.should be_a(OpenSSL::SSL::Context::Server)
+        ensure
+          File.delete(temp_key_file) if File.exists?(temp_key_file)
+          File.delete(temp_cert_file) if File.exists?(temp_cert_file)
+        end
       end
     end
   end

@@ -16,9 +16,6 @@ module HT2
     # HTTP/1.1 response for successful upgrade
     SWITCHING_PROTOCOLS_RESPONSE = "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n"
 
-    # HTTP/2 connection preface that clients must send
-    H2_PREFACE = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
-
     # Common HTTP/1.1 method names for detection
     HTTP1_METHODS = ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH", "CONNECT", "TRACE"]
 
@@ -73,8 +70,8 @@ module HT2
 
     # Detects if the initial bytes are HTTP/2 prior knowledge connection
     def self.h2_prior_knowledge?(data : Bytes) : Bool
-      return false if data.size < H2_PREFACE.bytesize
-      data[0, H2_PREFACE.bytesize] == H2_PREFACE.to_slice
+      return false if data.size < CONNECTION_PREFACE.bytesize
+      data[0, CONNECTION_PREFACE.bytesize] == CONNECTION_PREFACE.to_slice
     end
 
     # Detects if the initial bytes are HTTP/1.1

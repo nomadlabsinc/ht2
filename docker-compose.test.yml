@@ -1,0 +1,57 @@
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      args:
+        CRYSTAL_VERSION: ${CRYSTAL_VERSION:-1.16}
+    environment:
+      - CRYSTAL_WORKERS=${CRYSTAL_WORKERS:-4}
+      - LOG_LEVEL=${LOG_LEVEL:-ERROR}
+      - PARALLEL_TESTS=${PARALLEL_TESTS:-true}
+    volumes:
+      - ./spec:/app/spec:ro
+      - ./src:/app/src:ro
+      - test-certs:/certs
+    tmpfs:
+      - /tmp
+    command: ["/app/scripts/run-tests.sh"]
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+
+  test-parallel-1:
+    extends: test
+    environment:
+      - CRYSTAL_WORKERS=4
+      - TEST_SUITE=unit
+    command: ["/app/scripts/run-tests.sh", "unit"]
+
+  test-parallel-2:
+    extends: test
+    environment:
+      - CRYSTAL_WORKERS=4
+      - TEST_SUITE=integration
+    command: ["/app/scripts/run-tests.sh", "integration"]
+
+  test-parallel-3:
+    extends: test
+    environment:
+      - CRYSTAL_WORKERS=4
+      - TEST_SUITE=security
+    command: ["/app/scripts/run-tests.sh", "security"]
+
+  test-parallel-4:
+    extends: test
+    environment:
+      - CRYSTAL_WORKERS=4
+      - TEST_SUITE=performance
+    command: ["/app/scripts/run-tests.sh", "performance"]
+
+volumes:
+  test-certs:
