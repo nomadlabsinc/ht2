@@ -7,6 +7,7 @@ require "./debug_mode"
 require "./frame_cache"
 require "./frames"
 require "./hpack"
+require "./header_validator"
 require "./multi_frame_writer"
 require "./performance_metrics"
 require "./rapid_reset_protection"
@@ -44,51 +45,6 @@ module HT2
     property on_headers : HeaderCallback?
     property on_data : DataCallback?
 
-    # Test-only accessors
-    {% if env("CRYSTAL_SPEC") %}
-      property continuation_headers : IO::Memory
-      property continuation_stream_id : UInt32?
-      property total_streams_count : UInt32
-      property ping_handlers : Hash(Bytes, Channel(Nil))
-      property ping_rate_limiter : Security::RateLimiter
-
-      def test_handle_continuation_frame(frame : ContinuationFrame) : Nil
-        handle_continuation_frame(frame)
-      end
-
-      def test_handle_window_update_frame(frame : WindowUpdateFrame) : Nil
-        handle_window_update_frame(frame)
-      end
-
-      def test_get_or_create_stream(stream_id : UInt32) : Stream
-        get_or_create_stream(stream_id)
-      end
-
-      def test_handle_ping_frame(frame : PingFrame) : Nil
-        handle_ping_frame(frame)
-      end
-
-      def test_handle_rst_stream_frame(frame : RstStreamFrame) : Nil
-        handle_rst_stream_frame(frame)
-      end
-
-      def test_handle_priority_frame(frame : PriorityFrame) : Nil
-        handle_priority_frame(frame)
-      end
-
-      def test_handle_settings_frame(frame : SettingsFrame) : Nil
-        handle_settings_frame(frame)
-      end
-
-      def test_validate_setting(param : SettingsParameter, value : UInt32) : Nil
-        validate_setting(param, value)
-      end
-
-      def test_apply_remote_settings(settings : SettingsFrame::Settings) : Nil
-        apply_remote_settings(settings)
-      end
-    {% end %}
-
     def initialize(@socket : IO, @is_server : Bool = true, client_ip : String? = nil)
       @streams = Hash(UInt32, Stream).new
       @local_settings = default_settings
@@ -111,12 +67,17 @@ module HT2
       @continuation_headers = IO::Memory.new
       @continuation_end_stream = false
       @continuation_frame_count = 0_u32
+      @continuation_started_at = nil.as(Time?)
       @ping_handlers = Hash(Bytes, Channel(Nil)).new
       @settings_ack_channel = Channel(Nil).new
       @pending_settings = [] of Channel(Nil)
       @closed = false
       @write_mutex = Mutex.new
       @total_streams_count = 0_u32
+
+      # Track recently closed streams to properly reject frames
+      @closed_streams = Set(UInt32).new
+      @closed_stream_limit = 100_u32 # Keep track of last 100 closed streams
 
       # Rate limiters for flood protection
       @settings_rate_limiter = Security::RateLimiter.new(Security::MAX_SETTINGS_PER_SECOND)
@@ -697,7 +658,12 @@ module HT2
         rescue ex : StreamError
           Log.debug { "Read loop stream error: #{ex.stream_id} - #{ex.code} - #{ex.message}" }
           stream = @streams[ex.stream_id]?
-          stream.try(&.send_rst_stream(ex.code))
+          if stream
+            stream.send_rst_stream(ex.code)
+          else
+            # Stream doesn't exist (already closed), send RST_STREAM directly
+            send_frame(RstStreamFrame.new(ex.stream_id, ex.code))
+          end
           # Flush the frame immediately instead of sleeping
           @socket.flush rescue nil
         rescue ex
@@ -711,6 +677,13 @@ module HT2
     end
 
     private def handle_frame(frame : Frame)
+      # Check if we're expecting CONTINUATION frames
+      if @continuation_stream_id && !frame.is_a?(ContinuationFrame)
+        # Only CONTINUATION frames are allowed when we're in the middle of a header block
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR,
+          "#{frame.class} received while expecting CONTINUATION")
+      end
+
       case frame
       when DataFrame
         handle_data_frame(frame)
@@ -736,6 +709,11 @@ module HT2
     end
 
     private def handle_data_frame(frame : DataFrame)
+      # Check if this is a closed stream
+      if is_stream_closed?(frame.stream_id)
+        raise StreamError.new(frame.stream_id, ErrorCode::STREAM_CLOSED, "DATA on closed stream")
+      end
+
       stream = get_stream(frame.stream_id)
 
       # Update flow control windows
@@ -781,6 +759,11 @@ module HT2
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "HEADERS while expecting CONTINUATION")
       end
 
+      # Check if this is a closed stream
+      if is_stream_closed?(frame.stream_id)
+        raise StreamError.new(frame.stream_id, ErrorCode::STREAM_CLOSED, "HEADERS on closed stream")
+      end
+
       stream = get_or_create_stream(frame.stream_id)
 
       Log.debug do
@@ -804,34 +787,54 @@ module HT2
           end
 
           headers = @hpack_decoder.decode(frame.header_block)
-          Log.debug { "Decoded headers: #{headers.inspect}" }
-          stream.receive_headers(headers, frame.flags.end_stream?)
+          Log.debug { "Decoded headers before validation: #{headers.inspect}" }
+
+          # Check if this is trailers (stream already has headers and data)
+          is_trailers = !!(stream.request_headers && stream.data.size > 0)
+
+          # Validate headers according to HTTP/2 spec
+          validator = HeaderValidator.new(is_request: true, is_trailers: is_trailers)
+          begin
+            validated_headers = validator.validate(headers)
+          rescue ex : StreamError
+            # Re-raise with correct stream ID
+            raise StreamError.new(frame.stream_id, ex.code, ex.message)
+          end
+
+          Log.debug { "Validated headers: #{validated_headers.inspect}" }
+          stream.receive_headers(validated_headers, frame.flags.end_stream?)
 
           # Record headers received for rapid reset protection
           @rapid_reset_protection.record_headers_received(frame.stream_id)
 
           if callback = @on_headers
-            callback.call(stream, headers, frame.flags.end_stream?)
+            callback.call(stream, validated_headers, frame.flags.end_stream?)
           end
         rescue ex : HPACK::DecompressionError
-          # HPACK decompression failed - protocol error
+          # HPACK decompression failed - connection error per RFC 7540
           Log.error { "HPACK decompression error: #{ex.message}" }
           Log.debug { "Failed header block hex: #{frame.header_block.hexstring}" }
           if ex.message.try(&.includes?("Headers size exceeds maximum"))
             @performance_metrics.security_events.record_header_size_violation
           end
-          raise StreamError.new(frame.stream_id, ErrorCode::COMPRESSION_ERROR, ex.message)
+          raise ConnectionError.new(ErrorCode::COMPRESSION_ERROR, ex.message)
         end
       else
         # Expecting CONTINUATION frames
+        Log.debug { "HEADERS without END_HEADERS received, expecting CONTINUATION frames for stream #{frame.stream_id}" }
         @continuation_stream_id = frame.stream_id
+        @continuation_headers.clear # Clear any previous data
         @continuation_headers.write(frame.header_block)
         @continuation_end_stream = frame.flags.end_stream?
         @continuation_frame_count = 0_u32
+        @continuation_started_at = Time.utc
+        Log.debug { "Saved #{frame.header_block.size} bytes, end_stream=#{@continuation_end_stream}" }
       end
     end
 
     private def handle_continuation_frame(frame : ContinuationFrame)
+      Log.debug { "CONTINUATION frame received: stream_id=#{frame.stream_id}, end_headers=#{frame.flags.end_headers?}, header_block_size=#{frame.header_block.size}" }
+
       if @continuation_stream_id.nil?
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "CONTINUATION without HEADERS")
       end
@@ -840,8 +843,27 @@ module HT2
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "CONTINUATION stream mismatch")
       end
 
+      # Check for timeout (5 seconds for CONTINUATION sequence)
+      if started_at = @continuation_started_at
+        if Time.utc - started_at > 5.seconds
+          # Reset continuation state
+          @continuation_stream_id = nil
+          @continuation_headers.clear
+          @continuation_frame_count = 0_u32
+          @continuation_started_at = nil
+          raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "CONTINUATION sequence timeout")
+        end
+      end
+
+      # Check if this is a closed stream
+      if is_stream_closed?(frame.stream_id)
+        raise StreamError.new(frame.stream_id, ErrorCode::STREAM_CLOSED, "CONTINUATION on closed stream")
+      end
+
       # Check continuation frame count limit
       @continuation_frame_count += 1
+      Log.debug { "CONTINUATION frame count: #{@continuation_frame_count}" }
+
       if @continuation_frame_count > Security::MAX_CONTINUATION_FRAMES
         raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR,
           "CONTINUATION frame count exceeds limit: #{@continuation_frame_count}")
@@ -853,32 +875,57 @@ module HT2
       end
 
       @continuation_headers.write(frame.header_block)
+      Log.debug { "CONTINUATION headers buffer size: #{@continuation_headers.size}" }
+      Log.debug { "CONTINUATION: Added #{frame.header_block.size} bytes, total frames: #{@continuation_frame_count}" }
 
       if frame.flags.end_headers?
+        Log.debug { "CONTINUATION: END_HEADERS received, processing complete header block" }
         stream = get_stream(frame.stream_id)
         begin
           headers = @hpack_decoder.decode(@continuation_headers.to_slice)
+          Log.debug { "CONTINUATION: Decoded #{headers.size} headers" }
+
+          # Check if this is trailers
+          is_trailers = !!(stream.request_headers && stream.data.size > 0)
+
+          # Validate headers according to HTTP/2 spec
+          validator = HeaderValidator.new(is_request: true, is_trailers: is_trailers)
+          begin
+            validated_headers = validator.validate(headers)
+          rescue ex : StreamError
+            # Re-raise with correct stream ID
+            raise StreamError.new(frame.stream_id, ex.code, ex.message)
+          end
 
           # Use tracked END_STREAM flag from original HEADERS frame
           end_stream = @continuation_end_stream
 
-          stream.receive_headers(headers, end_stream)
+          stream.receive_headers(validated_headers, end_stream)
 
           if callback = @on_headers
-            callback.call(stream, headers, end_stream)
+            Log.debug { "CONTINUATION: Invoking on_headers callback with #{validated_headers.size} headers, end_stream=#{end_stream}" }
+            callback.call(stream, validated_headers, end_stream)
+          else
+            Log.debug { "CONTINUATION: No on_headers callback set!" }
           end
         rescue ex : HPACK::DecompressionError
-          # HPACK decompression failed - protocol error
+          # HPACK decompression failed - connection error per RFC 7540
           if ex.message.try(&.includes?("Headers size exceeds maximum"))
             @performance_metrics.security_events.record_header_size_violation
           end
-          raise StreamError.new(frame.stream_id, ErrorCode::COMPRESSION_ERROR, ex.message)
+          raise ConnectionError.new(ErrorCode::COMPRESSION_ERROR, ex.message)
         end
 
         @continuation_stream_id = nil
         @continuation_headers.clear
         @continuation_frame_count = 0_u32
+        @continuation_started_at = nil
+        Log.debug { "CONTINUATION: Processing complete, state cleared" }
+      else
+        Log.debug { "CONTINUATION: Waiting for more frames (no END_HEADERS yet)" }
       end
+
+      Log.debug { "CONTINUATION handler completed for stream #{frame.stream_id}" }
     end
 
     private def handle_priority_frame(frame : PriorityFrame)
@@ -887,8 +934,28 @@ module HT2
         raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "PRIORITY flood detected")
       end
 
-      stream = get_or_create_stream(frame.stream_id)
-      stream.receive_priority(frame.priority)
+      # Check if stream already exists
+      if stream = @streams[frame.stream_id]?
+        # Existing stream - just update priority
+        stream.receive_priority(frame.priority)
+      else
+        # Stream doesn't exist - could be an idle stream
+        # For idle streams, we create a priority-only placeholder without updating last_stream_id
+        # per RFC 7540 Section 5.3.2: PRIORITY can be sent for streams in any state
+
+        # Still need to validate stream ID format
+        if frame.stream_id.even?
+          raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Client must use odd-numbered stream IDs")
+        end
+
+        # Create stream without updating last_stream_id for idle streams
+        stream = Stream.new(self, frame.stream_id, StreamState::IDLE)
+        stream.receive_priority(frame.priority)
+        @streams[frame.stream_id] = stream
+
+        # Don't update last_stream_id for priority-only streams
+        # This allows lower stream IDs to be created later
+      end
     end
 
     private def handle_rst_stream_frame(frame : RstStreamFrame)
@@ -898,6 +965,12 @@ module HT2
       end
 
       stream = @streams[frame.stream_id]?
+
+      # RST_STREAM on idle stream is a protocol error
+      if stream.nil? && frame.stream_id > @last_stream_id
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "RST_STREAM on idle stream")
+      end
+
       return unless stream
 
       # Record cancellation for rapid reset detection
@@ -907,7 +980,7 @@ module HT2
       end
 
       stream.receive_rst_stream(frame.error_code)
-      @streams.delete(frame.stream_id)
+      mark_stream_closed(frame.stream_id)
       @rapid_reset_protection.record_stream_closed(frame.stream_id)
 
       # Track metrics
@@ -1030,6 +1103,23 @@ module HT2
       @streams[stream_id] || raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Unknown stream #{stream_id}")
     end
 
+    def mark_stream_closed(stream_id : UInt32) : Nil
+      @streams.delete(stream_id)
+      @closed_streams << stream_id
+
+      # Limit the size of closed streams set
+      if @closed_streams.size > @closed_stream_limit
+        # Remove oldest closed streams (lower IDs)
+        oldest_ids = @closed_streams.to_a.sort.first(@closed_streams.size - @closed_stream_limit)
+        oldest_ids.each { |id| @closed_streams.delete(id) }
+      end
+    end
+
+    # Check if a stream is closed (public for testing)
+    def is_stream_closed?(stream_id : UInt32) : Bool
+      @closed_streams.includes?(stream_id)
+    end
+
     def apply_remote_settings(settings : SettingsFrame::Settings) : Nil
       settings.each do |param, value|
         validate_setting(param, value)
@@ -1062,9 +1152,11 @@ module HT2
 
       @streams.each_value do |stream|
         new_window = stream.send_window_size.to_i64 + diff
-        if new_window > Security::MAX_WINDOW_SIZE || new_window < 0
+        if new_window > Security::MAX_WINDOW_SIZE
           raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "Window size overflow on stream #{stream.id}")
         end
+        # Allow negative windows - RFC 7540 Section 6.9.2
+        # "A sender MUST track the negative flow-control window"
         stream.send_window_size = new_window.to_i32
       end
     end
@@ -1076,8 +1168,9 @@ module HT2
           raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "ENABLE_PUSH must be 0 or 1")
         end
       when SettingsParameter::INITIAL_WINDOW_SIZE
+        # Window size is UInt32 but needs to be treated as Int32 for flow control
         if value > 0x7FFFFFFF
-          raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "INITIAL_WINDOW_SIZE too large")
+          raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "INITIAL_WINDOW_SIZE too large: #{value}")
         end
       when SettingsParameter::MAX_FRAME_SIZE
         if value < 16_384 || value > 16_777_215
@@ -1093,50 +1186,63 @@ module HT2
     end
 
     private def get_or_create_stream(stream_id : UInt32) : Stream
-      @streams[stream_id] ||= begin
-        if stream_id <= @last_stream_id
-          raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Stream ID not increasing")
-        end
-
-        # Check rapid reset protection
-        if @rapid_reset_protection.banned?(@connection_id)
-          @performance_metrics.security_events.record_connection_rejected
-          raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "Connection banned due to rapid reset attack")
-        end
-
-        unless @rapid_reset_protection.record_stream_created(stream_id, @connection_id)
-          @performance_metrics.security_events.record_connection_rate_limited
-          raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "Stream creation rate limit exceeded")
-        end
-
-        # Check concurrent stream limit
-        active_streams = @streams.count { |_, stream| !stream.closed? }
-        max_streams = @local_settings[SettingsParameter::MAX_CONCURRENT_STREAMS]
-
-        if active_streams >= max_streams
-          @performance_metrics.security_events.record_stream_limit_violation
-          raise ConnectionError.new(ErrorCode::REFUSED_STREAM, "Maximum concurrent streams (#{max_streams}) reached")
-        end
-
-        # Check total stream limit
-        if @total_streams_count >= Security::MAX_TOTAL_STREAMS
-          raise ConnectionError.new(ErrorCode::REFUSED_STREAM, "Total stream limit reached")
-        end
-
-        @last_stream_id = stream_id
-        @total_streams_count += 1
-
-        # Track metrics
-        @metrics.record_stream_created(stream_id)
-        @performance_metrics.record_stream_created(stream_id)
-        @stream_lifecycle_tracer.record_event(
-          StreamLifecycleTracer::EventType::CREATED,
-          stream_id,
-          "Stream created by server"
-        )
-
-        Stream.new(self, stream_id, StreamState::IDLE)
+      # Check if stream already exists (possibly from PRIORITY frame)
+      if existing_stream = @streams[stream_id]?
+        return existing_stream
       end
+
+      # Create new stream
+      # Client-initiated streams must use odd-numbered stream IDs
+      # Server-initiated streams use even-numbered IDs (but we're a server, so we expect odd from clients)
+      if stream_id.even?
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Client must use odd-numbered stream IDs")
+      end
+
+      if stream_id <= @last_stream_id
+        raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Stream ID not increasing")
+      end
+
+      # Check rapid reset protection
+      if @rapid_reset_protection.banned?(@connection_id)
+        @performance_metrics.security_events.record_connection_rejected
+        raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "Connection banned due to rapid reset attack")
+      end
+
+      unless @rapid_reset_protection.record_stream_created(stream_id, @connection_id)
+        @performance_metrics.security_events.record_connection_rate_limited
+        raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "Stream creation rate limit exceeded")
+      end
+
+      # Check concurrent stream limit
+      active_streams = @streams.count { |_, stream| !stream.closed? }
+      max_streams = @local_settings[SettingsParameter::MAX_CONCURRENT_STREAMS]
+
+      if active_streams >= max_streams
+        @performance_metrics.security_events.record_stream_limit_violation
+        raise ConnectionError.new(ErrorCode::REFUSED_STREAM, "Maximum concurrent streams (#{max_streams}) reached")
+      end
+
+      # Check total stream limit
+      if @total_streams_count >= Security::MAX_TOTAL_STREAMS
+        raise ConnectionError.new(ErrorCode::REFUSED_STREAM, "Total stream limit reached")
+      end
+
+      @last_stream_id = stream_id
+      @total_streams_count += 1
+
+      # Track metrics
+      @metrics.record_stream_created(stream_id)
+      @performance_metrics.record_stream_created(stream_id)
+      @stream_lifecycle_tracer.record_event(
+        StreamLifecycleTracer::EventType::CREATED,
+        stream_id,
+        "Stream created by server"
+      )
+
+      # Create new stream
+      stream = Stream.new(self, stream_id, StreamState::IDLE)
+      @streams[stream_id] = stream
+      stream
     end
 
     private def next_stream_id : UInt32

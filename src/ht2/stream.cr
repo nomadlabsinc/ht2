@@ -1,4 +1,5 @@
 require "./adaptive_flow_control"
+require "./content_length_validator"
 require "./security"
 require "./stream_state_machine"
 require "log"
@@ -25,6 +26,8 @@ module HT2
 
     property request_headers : Array(Tuple(String, String))?
     property response_headers : Array(Tuple(String, String))?
+    property request_trailers : Array(Tuple(String, String))?
+    property response_trailers : Array(Tuple(String, String))?
     property data : IO::Memory
     property? end_stream_sent : Bool
     property? end_stream_received : Bool
@@ -46,9 +49,11 @@ module HT2
         @recv_window_size,
         AdaptiveFlowControl::Strategy::DYNAMIC
       )
+      @content_length_validator = ContentLengthValidator.new
     end
 
     def send_headers(headers : Array(Tuple(String, String)), end_stream : Bool = false) : Nil
+      Log.debug { "Stream #{@id}: send_headers called with #{headers.size} headers, end_stream=#{end_stream}" }
       @state_machine.validate_send_headers
 
       @response_headers = headers
@@ -62,10 +67,12 @@ module HT2
       flags = flags | FrameFlags::END_STREAM if end_stream
 
       frame = HeadersFrame.new(@id, header_block, flags)
+      Log.debug { "Stream #{@id}: Sending HEADERS frame with flags=#{flags}, header_block_size=#{header_block.size}" }
       @connection.send_frame(frame)
 
       @end_stream_sent = true if end_stream
       update_state_after_headers_sent(end_stream)
+      Log.debug { "Stream #{@id}: send_headers completed, new state=#{state}" }
     end
 
     def send_data(data : Bytes, end_stream : Bool = false) : Nil
@@ -152,14 +159,21 @@ module HT2
     end
 
     private def calculate_available_size(chunk_size : Int32) : Int32
-      # Safely handle window sizes, clamping to valid Int32 range
-      send_window = @send_window_size.clamp(0_i64, Int32::MAX.to_i64).to_i32
-      conn_window = @connection.window_size.clamp(0_i64, Int32::MAX.to_i64).to_i32
+      # Don't clamp to 0 - we need to track negative windows per RFC 7540
+      send_window = @send_window_size
+      # Connection window is Int64, need to handle overflow carefully
+      conn_window = if @connection.window_size > Int32::MAX
+                      Int32::MAX
+                    elsif @connection.window_size < Int32::MIN
+                      Int32::MIN
+                    else
+                      @connection.window_size.to_i32
+                    end
 
       Math.min(
         Math.min(chunk_size, send_window),
         conn_window
-      )
+      ).to_i32
     end
 
     private def wait_for_window : Nil
@@ -236,13 +250,57 @@ module HT2
     def receive_headers(headers : Array(Tuple(String, String)), end_stream : Bool, priority : Bool = false) : Nil
       @state_machine.validate_receive_headers
 
+      # Check if we already received headers
+      if @request_headers
+        # Second HEADERS frame - could be trailers or a protocol error
+        # Trailers are only allowed if:
+        # 1. The stream is in a state that allows receiving data/trailers (OPEN, HALF_CLOSED_LOCAL)
+        # 2. We haven't received END_STREAM yet (trailers must have END_STREAM set)
+        # 3. The current HEADERS frame has END_STREAM set
+        if (state == StreamState::OPEN || state == StreamState::HALF_CLOSED_LOCAL) && !@end_stream_received && end_stream
+          # This is trailers
+          @request_trailers = headers
+          @end_stream_received = true
+          update_state_after_trailers_received
+          return
+        else
+          # Second HEADERS frame without END_STREAM or in wrong state is a protocol error
+          raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Already received headers for this stream")
+        end
+      end
+
       @request_headers = headers
+
+      # Set up content-length validation
+      begin
+        @content_length_validator.set_expected_length(headers)
+      rescue ex : StreamError
+        # Re-raise with correct stream ID
+        raise StreamError.new(@id, ex.code, ex.message)
+      end
+
+      # If end_stream is set with content-length, validate it's 0
+      if end_stream && @content_length_validator.has_content_length?
+        if @content_length_validator.expected_length != 0
+          raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR,
+            "END_STREAM set but content-length is #{@content_length_validator.expected_length}")
+        end
+      end
+
       @end_stream_received = true if end_stream
       update_state_after_headers_received(end_stream)
     end
 
     def receive_data(data : Bytes, end_stream : Bool) : Nil
       @state_machine.validate_receive_data
+
+      # Validate content-length
+      begin
+        @content_length_validator.add_data(data)
+      rescue ex : StreamError
+        # Re-raise with correct stream ID
+        raise StreamError.new(@id, ex.code, ex.message)
+      end
 
       # Update receive window
       @recv_window_size -= data.size
@@ -284,7 +342,17 @@ module HT2
         end
       end
 
-      @end_stream_received = true if end_stream
+      if end_stream
+        # Validate content-length on stream end
+        begin
+          @content_length_validator.validate_end_of_stream
+        rescue ex : StreamError
+          # Re-raise with correct stream ID
+          raise StreamError.new(@id, ex.code, ex.message)
+        end
+        @end_stream_received = true
+      end
+
       update_state_after_data_received(end_stream)
     end
 
@@ -377,6 +445,11 @@ module HT2
     end
 
     def receive_priority(priority : PriorityData) : Nil
+      # Check for self-dependency
+      if priority.stream_dependency == @id
+        raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Stream cannot depend on itself")
+      end
+
       # PRIORITY frames are allowed in any state, including CLOSED
       # for a short period after stream closure
       if state == StreamState::CLOSED && @closed_at
@@ -410,6 +483,7 @@ module HT2
       # Update closed timestamp if needed
       if new_state == StreamState::CLOSED
         @closed_at = Time.utc
+        @connection.mark_stream_closed(@id)
       end
 
       # Record state change if occurred
@@ -450,6 +524,7 @@ module HT2
       # Update closed timestamp if needed
       if new_state == StreamState::CLOSED
         @closed_at = Time.utc
+        @connection.mark_stream_closed(@id)
       end
 
       # Record state change if occurred
@@ -483,6 +558,7 @@ module HT2
       # Update closed timestamp if needed
       if new_state == StreamState::CLOSED
         @closed_at = Time.utc
+        @connection.mark_stream_closed(@id)
       end
 
       # Record state change if occurred
@@ -532,6 +608,7 @@ module HT2
       # Update closed timestamp if needed
       if new_state == StreamState::CLOSED
         @closed_at = Time.utc
+        @connection.mark_stream_closed(@id)
       end
 
       # Record state change if occurred
@@ -561,6 +638,32 @@ module HT2
 
     def closed? : Bool
       state == StreamState::CLOSED
+    end
+
+    private def update_state_after_trailers_received
+      # Trailers are always sent with END_STREAM, so transition to closed
+      previous_state = state
+
+      # Transition state machine - trailers imply end of stream
+      event = StreamStateMachine.headers_event(true, false) # end_stream = true
+      new_state, _ = @state_machine.transition(event)
+
+      # Update closed timestamp
+      if new_state == StreamState::CLOSED
+        @closed_at = Time.utc
+        @connection.mark_stream_closed(@id)
+      end
+
+      # Record state change
+      if previous_state != new_state
+        @connection.stream_lifecycle_tracer.record_event(
+          StreamLifecycleTracer::EventType::STATE_CHANGE,
+          @id,
+          "Trailers received",
+          previous_state,
+          new_state
+        )
+      end
     end
   end
 end
