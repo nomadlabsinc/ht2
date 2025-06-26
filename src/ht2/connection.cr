@@ -1094,7 +1094,35 @@ module HT2
         Log.debug { "Connection window updated to #{@window_size}" }
       else
         # Stream window update
-        stream = get_stream(frame.stream_id)
+        stream = @streams[frame.stream_id]?
+        
+        if stream.nil?
+          # Stream doesn't exist in active streams
+          # This could be because:
+          # 1. Stream was recently closed (common case)
+          # 2. Stream ID is invalid
+          # 3. Stream never existed
+          
+          # Check if it's a known closed stream
+          if is_stream_closed?(frame.stream_id)
+            # This is fine - WINDOW_UPDATE can arrive after stream is closed
+            Log.debug { "Ignoring WINDOW_UPDATE on closed stream #{frame.stream_id}" }
+            return
+          end
+          
+          # Check if it's an invalid stream ID
+          if frame.stream_id > @last_stream_id || frame.stream_id.even?
+            raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, 
+              "WINDOW_UPDATE on invalid stream ID #{frame.stream_id}")
+          end
+          
+          # At this point, it's a stream we haven't seen yet or that was removed
+          # before being marked as closed. Since WINDOW_UPDATE is allowed on
+          # half-closed (remote) streams, we should accept it gracefully
+          Log.debug { "Ignoring WINDOW_UPDATE on unknown stream #{frame.stream_id}" }
+          return
+        end
+        
         stream.update_send_window(frame.window_size_increment.to_i32)
       end
     end
