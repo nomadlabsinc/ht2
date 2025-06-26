@@ -21,15 +21,17 @@ module HT2
         headers = Array(Header).new
         io = IO::Memory.new(data)
         @total_headers_size = 0_u32
+        first_header_decoded = false
 
         while io.pos < data.size
-          decode_header(io, headers)
+          decode_header(io, headers, first_header_decoded)
+          first_header_decoded = true unless headers.empty?
         end
 
         headers
       end
 
-      private def decode_header(io : IO, headers : Array(Header))
+      private def decode_header(io : IO, headers : Array(Header), first_header_decoded : Bool)
         return if io.pos >= io.size
 
         first_byte = io.read_byte || return
@@ -63,17 +65,25 @@ module HT2
             raise DecompressionError.new("Headers size exceeds maximum: #{@total_headers_size} > #{@max_headers_size}")
           end
 
-          # Validate header name
+          # Basic validation only - full validation happens later
           Security.validate_header_name(name)
-
-          # Convert header name to lowercase as required by HTTP/2
-          name = name.downcase unless name.starts_with?(':')
 
           headers << {name, value}
           add_to_dynamic_table(name, value)
         elsif first_byte & 0x20 != 0
           # Dynamic table size update
+          # Table size updates must come at the beginning of a header block
+          if first_header_decoded
+            raise DecompressionError.new("Dynamic table size update must be at the beginning of header block")
+          end
+
           new_size = decode_integer(io, first_byte, 5)
+
+          # Validate against the maximum allowed by settings
+          if new_size > @max_dynamic_table_size
+            raise DecompressionError.new("Dynamic table size update exceeds maximum: #{new_size} > #{@max_dynamic_table_size}")
+          end
+
           self.max_table_size = new_size
         else
           # Literal header field without indexing
@@ -99,11 +109,8 @@ module HT2
             raise DecompressionError.new("Headers size exceeds maximum: #{@total_headers_size} > #{@max_headers_size}")
           end
 
-          # Validate header name
+          # Basic validation only - full validation happens later
           Security.validate_header_name(name)
-
-          # Convert header name to lowercase as required by HTTP/2
-          name = name.downcase unless name.starts_with?(':')
 
           headers << {name, value}
         end
@@ -175,7 +182,14 @@ module HT2
         io.read_fully(data)
 
         if huffman
-          Huffman.decode(data)
+          Log.debug { "HPACK: Decoding Huffman string, length=#{length}, data=#{data.hexstring}" }
+          # Check for potential EOS pattern (lots of FF bytes)
+          if data.hexstring.includes?("ffff")
+            Log.warn { "HPACK: Potential EOS pattern detected in Huffman data: #{data.hexstring}" }
+          end
+          result = Huffman.decode(data)
+          Log.debug { "HPACK: Huffman decoded to: #{result.inspect}" }
+          result
         else
           String.new(data)
         end

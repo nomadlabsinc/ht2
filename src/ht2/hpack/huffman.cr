@@ -55,32 +55,175 @@ module HT2
         # Build decode tree for efficient decoding
         root = build_decode_tree
         node = root
+        last_byte_index = data.size - 1
+        last_symbol_bit = -1
+        bits_processed = 0
 
-        data.each do |byte|
+        Log.debug { "Huffman decode: data.size=#{data.size}, hex=#{data.hexstring}" }
+        
+        # Check if this looks like it might contain EOS pattern
+        if data.size >= 4
+          # EOS is 0x3fffffff (30 bits of 1s)
+          Log.debug { "Huffman decode: Checking for potential EOS pattern in data" }
+        end
+
+        data.each_with_index do |byte, byte_index|
           mask = 0x80_u8
 
-          8.times do
+          8.times do |bit_in_byte|
             if byte & mask != 0
               node = node.right || raise DecompressionError.new("Invalid Huffman sequence")
             else
               node = node.left || raise DecompressionError.new("Invalid Huffman sequence")
             end
 
+            bits_processed += 1
+
             if value = node.value
+              Log.trace { "Huffman decoded value: #{value}" }
               if value == 256 # EOS
-                return
+                Log.error { "Huffman: EOS symbol detected! This is a compression error." }
+                raise DecompressionError.new("EOS symbol found in Huffman data")
               end
               yield value.to_u8
               node = root
+
+              # Track the bit position of the last completed symbol
+              last_symbol_bit = byte_index * 8 + bit_in_byte
             end
 
             mask >>= 1
           end
         end
 
-        # Check for incomplete sequence
-        # The padding bits (all 1s) should leave us at a node that can be safely ignored
-        # per RFC 7541 Section 5.2
+        # Validate padding if needed
+        if node != root && data.size > 0
+          # We ended in the middle of a symbol, which means we have padding
+          # RFC 7541 Section 5.2: Any padding bits MUST be set to 1
+          # Also: "A padding strictly longer than 7 bits MUST be treated as a decoding error."
+
+          # Calculate padding length
+          total_bits = data.size * 8
+          bits_used = last_symbol_bit + 1
+          padding_bits = total_bits - bits_used
+
+          Log.debug { "Huffman padding check: last_symbol_bit=#{last_symbol_bit}, total_bits=#{total_bits}, padding_bits=#{padding_bits}" }
+
+          if padding_bits > 7
+            raise DecompressionError.new("Padding longer than 7 bits")
+          end
+
+          # To validate this, we need to check the bits after where we stopped
+          # in our traversal. Since we know we're not at root, we know some bits
+          # were processed but didn't complete a symbol.
+
+          # The tricky part is that the incomplete symbol spans from the last
+          # completed symbol to the end. We need to check that all bits after
+          # this incomplete prefix are 1s.
+
+          # If we have a last completed symbol, padding starts after it
+          if last_symbol_bit >= 0
+            # Calculate padding bits
+            total_bits = data.size * 8
+            # The bits after last_symbol_bit that form the incomplete symbol
+            # plus any additional padding must all be 1s
+            bits_after_last_symbol = total_bits - last_symbol_bit - 1
+
+            if bits_after_last_symbol > 0
+              # We need to verify these bits are consistent with being
+              # a prefix of the EOS symbol (all 1s)
+
+              # Check remaining bits in the byte containing last symbol
+              last_symbol_byte_index = last_symbol_bit // 8
+              last_symbol_bit_in_byte = last_symbol_bit % 8
+
+              if last_symbol_byte_index == last_byte_index
+                # All remaining bits are in the same byte
+                remaining_bits_in_byte = 7 - last_symbol_bit_in_byte
+                if remaining_bits_in_byte > 0
+                  mask = (1 << remaining_bits_in_byte) - 1
+                  if (data[last_byte_index] & mask) != mask
+                    raise DecompressionError.new("Invalid Huffman padding (contains zeros)")
+                  end
+                end
+              else
+                # Check remaining bits in the byte with last symbol
+                remaining_bits_in_symbol_byte = 7 - last_symbol_bit_in_byte
+                if remaining_bits_in_symbol_byte > 0
+                  mask = (1 << remaining_bits_in_symbol_byte) - 1
+                  if (data[last_symbol_byte_index] & mask) != mask
+                    raise DecompressionError.new("Invalid Huffman padding (contains zeros)")
+                  end
+                end
+
+                # Check all complete bytes after the last symbol byte
+                (last_symbol_byte_index + 1...last_byte_index).each do |i|
+                  if data[i] != 0xFF
+                    raise DecompressionError.new("Invalid Huffman padding (contains zeros)")
+                  end
+                end
+
+                # Check the last byte
+                if data[last_byte_index] != 0xFF
+                  raise DecompressionError.new("Invalid Huffman padding (contains zeros)")
+                end
+              end
+            end
+          else
+            # No symbols were completed, so all bits form an incomplete symbol
+            # For this to be valid padding, ALL bits must be 1s (prefix of EOS)
+            data.each do |byte|
+              if byte != 0xFF
+                raise DecompressionError.new("Invalid Huffman padding (contains zeros)")
+              end
+            end
+          end
+        elsif last_symbol_bit >= 0
+          # We completed all symbols and are at root
+          # Check if there's padding after the last symbol
+          total_bits = data.size * 8
+          bits_used = last_symbol_bit + 1
+          padding_bits_count = total_bits - bits_used
+
+          if padding_bits_count > 7
+            raise DecompressionError.new("Padding longer than 7 bits")
+          elsif padding_bits_count > 0
+            last_byte = data[last_byte_index]
+            # Create mask for the rightmost padding_bits_count bits
+            padding_mask = (1 << padding_bits_count) - 1
+            actual_padding = last_byte & padding_mask
+
+            if actual_padding != padding_mask
+              raise DecompressionError.new("Invalid Huffman padding (contains zeros)")
+            end
+          end
+        end
+      end
+
+      # Count how many more bits are needed to reach a value from current node
+      private def count_remaining_bits(node : DecodeNode, root : DecodeNode) : Int32
+        return 0 if node == root
+
+        # Try to find the shortest path to any value
+        min_depth = 30 # Max Huffman code length
+
+        queue = [{node, 0}]
+        while !queue.empty?
+          current, depth = queue.shift
+
+          if current.value
+            min_depth = depth if depth < min_depth
+          else
+            if left = current.left
+              queue << {left, depth + 1}
+            end
+            if right = current.right
+              queue << {right, depth + 1}
+            end
+          end
+        end
+
+        min_depth
       end
 
       private class DecodeNode
