@@ -1,5 +1,5 @@
-# CI-optimized Docker image using robnomad/crystal:dev-hoard
-FROM robnomad/crystal:dev-hoard
+# CI-optimized Docker image using robnomad/crystal:dev-node-hoard
+FROM robnomad/crystal:dev-node-hoard
 
 WORKDIR /app
 
@@ -16,9 +16,8 @@ RUN apk add --no-cache \
     git \
     make
 
-# Install Python packages
-RUN pip3 install "httpx[http2]" h2 || \
-    pip3 install --break-system-packages "httpx[http2]" h2
+# Install Python packages with --break-system-packages flag
+RUN pip3 install --break-system-packages "httpx[http2]" h2
 
 # Install h2spec for HTTP/2 conformance testing (skip for now, needs glibc)
 # RUN curl -L https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz -o h2spec.tar.gz && \
@@ -42,8 +41,10 @@ RUN mkdir -p /certs && \
     -days 365 -nodes -subj "/CN=client" && \
     chmod 644 /certs/*
 
-# Create necessary directories
-RUN mkdir -p /tmp/.crystal
+# Create necessary directories with proper permissions
+RUN mkdir -p /tmp/.crystal && \
+    chmod -R 777 /tmp/.crystal && \
+    chmod 1777 /tmp
 
 # Set environment
 ENV CRYSTAL_CACHE_DIR=/tmp/.crystal

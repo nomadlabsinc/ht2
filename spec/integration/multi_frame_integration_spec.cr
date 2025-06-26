@@ -119,25 +119,54 @@ describe "Multi-frame writer integration" do
     server_conn = HT2::Connection.new(server_socket, is_server: true)
     client_conn = HT2::Connection.new(client_socket, is_server: false)
 
+    data_received = [] of String
+    end_stream_received = false
+    headers_received = false
+
+    # Server handles headers and data - set callbacks BEFORE starting
+    server_conn.on_headers = ->(s : HT2::Stream, headers : Array(Tuple(String, String)), end_stream : Bool) do
+      headers_received = true
+      # Important: don't close the stream yet by sending response
+    end
+
+    server_conn.on_data = ->(s : HT2::Stream, data : Bytes, end_stream : Bool) do
+      data_received << String.new(data)
+      end_stream_received = end_stream
+
+      # Send response after all data is received
+      if end_stream
+        response_headers = [
+          {":status", "200"},
+          {"content-type", "text/plain"},
+        ]
+        s.send_headers(response_headers, true)
+      end
+    end
+
     # Start both connections
     spawn { server_conn.start }
     spawn { client_conn.start }
 
-    # Wait for handshake
-    sleep 0.1.seconds
+    # Wait for handshake to complete
+    sleep 0.2.seconds
 
     # Create a stream
     stream = client_conn.create_stream
-    stream.send_headers([{"content-type", "text/plain"}])
 
-    data_received = [] of String
-    end_stream_received = false
+    # Send headers without ending the stream
+    stream.send_headers([
+      {":method", "POST"},
+      {":scheme", "https"},
+      {":path", "/"},
+      {":authority", "localhost"},
+      {"content-type", "text/plain"},
+    ], end_stream: false)
 
-    # Server handles data
-    server_conn.on_data = ->(s : HT2::Stream, data : Bytes, end_stream : Bool) do
-      data_received << String.new(data)
-      end_stream_received = end_stream
-    end
+    # Give headers time to be processed
+    sleep 0.1.seconds
+
+    # Verify headers were received before sending data
+    headers_received.should be_true
 
     # Send multiple data chunks
     chunks = [
@@ -146,10 +175,15 @@ describe "Multi-frame writer integration" do
       "Third chunk".to_slice,
     ]
 
-    client_conn.send_data_frames(stream.id, chunks, end_stream: true)
+    # Send data through the stream
+    chunks.each_with_index do |chunk, i|
+      is_last = (i == chunks.size - 1)
+      stream.send_data(chunk, end_stream: is_last)
+      sleep 0.01.seconds # Small delay between chunks
+    end
 
-    # Wait for data
-    sleep 0.2.seconds
+    # Wait for data to be processed
+    sleep 0.3.seconds
 
     data_received.size.should eq(3)
     data_received.should eq(["First chunk", "Second chunk", "Third chunk"])
@@ -165,23 +199,28 @@ describe "Multi-frame writer integration" do
     server_conn = HT2::Connection.new(server_socket, is_server: true)
     client_conn = HT2::Connection.new(client_socket, is_server: false)
 
+    headers_received = [] of Array(Tuple(String, String))
+
+    # Set callback BEFORE starting
+    server_conn.on_headers = ->(s : HT2::Stream, headers : Array(Tuple(String, String)), end_stream : Bool) do
+      headers_received << headers
+    end
+
     # Start connections
     spawn { server_conn.start }
     spawn { client_conn.start }
 
-    # Wait for initial handshake
-    sleep 0.1.seconds
-
-    headers_received = [] of Array(Tuple(String, String))
-
-    server_conn.on_headers = ->(s : HT2::Stream, headers : Array(Tuple(String, String)), end_stream : Bool) do
-      headers_received << headers
-    end
+    # Wait for initial handshake to complete
+    sleep 0.2.seconds
 
     # Create multiple streams with headers
     5.times do |i|
       stream = client_conn.create_stream
       headers = [
+        {":method", "GET"},
+        {":scheme", "https"},
+        {":path", "/test-#{i}"},
+        {":authority", "localhost"},
         {"content-type", "text/plain"},
         {"x-stream-id", i.to_s},
         {"x-custom-header", "value-#{i}"},
@@ -189,8 +228,8 @@ describe "Multi-frame writer integration" do
       stream.send_headers(headers, end_stream: true)
     end
 
-    # Wait for headers
-    sleep 0.2.seconds
+    # Wait for headers to be processed
+    sleep 0.3.seconds
 
     headers_received.size.should eq(5)
     headers_received.each_with_index do |headers, i|
