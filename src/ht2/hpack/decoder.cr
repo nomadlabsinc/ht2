@@ -9,12 +9,15 @@ module HT2
       getter dynamic_table_size : UInt32
       property max_dynamic_table_size : UInt32
       property max_headers_size : UInt32
+      private property settings_max_table_size : UInt32
 
-      def initialize(@max_dynamic_table_size : UInt32 = DEFAULT_HEADER_TABLE_SIZE,
+      def initialize(max_table_size : UInt32 = DEFAULT_HEADER_TABLE_SIZE,
                      @max_headers_size : UInt32 = Security::MAX_HEADER_LIST_SIZE)
         @dynamic_table = Array(Header).new
         @dynamic_table_size = 0_u32
         @total_headers_size = 0_u32
+        @settings_max_table_size = max_table_size
+        @max_dynamic_table_size = max_table_size
       end
 
       def decode(data : Bytes) : Array(Header)
@@ -80,8 +83,8 @@ module HT2
           new_size = decode_integer(io, first_byte, 5)
 
           # Validate against the maximum allowed by settings
-          if new_size > @max_dynamic_table_size
-            raise DecompressionError.new("Dynamic table size update exceeds maximum: #{new_size} > #{@max_dynamic_table_size}")
+          if new_size > @settings_max_table_size
+            raise DecompressionError.new("Dynamic table size update exceeds maximum: #{new_size} > #{@settings_max_table_size}")
           end
 
           self.max_table_size = new_size
@@ -224,6 +227,15 @@ module HT2
       def max_table_size=(size : UInt32)
         @max_dynamic_table_size = size
         evict_entries
+      end
+
+      # Called when SETTINGS_HEADER_TABLE_SIZE is received
+      def update_settings_max_table_size(size : UInt32)
+        @settings_max_table_size = size
+        # If current size exceeds new limit, reduce it
+        if @max_dynamic_table_size > size
+          self.max_table_size = size
+        end
       end
 
       private def evict_entries

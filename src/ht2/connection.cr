@@ -487,6 +487,7 @@ module HT2
       case param
       when SettingsParameter::HEADER_TABLE_SIZE
         @hpack_encoder.update_dynamic_table_size(value)
+        @hpack_decoder.update_settings_max_table_size(value)
       when SettingsParameter::MAX_HEADER_LIST_SIZE
         @hpack_decoder.max_headers_size = value
       when SettingsParameter::INITIAL_WINDOW_SIZE
@@ -761,7 +762,8 @@ module HT2
 
       # Check if this is a closed stream
       if is_stream_closed?(frame.stream_id)
-        raise StreamError.new(frame.stream_id, ErrorCode::STREAM_CLOSED, "HEADERS on closed stream")
+        # RFC 7540 Section 5.1.1: HEADERS on a closed stream is a connection error
+        raise ConnectionError.new(ErrorCode::STREAM_CLOSED, "HEADERS on closed stream #{frame.stream_id}")
       end
 
       stream = get_or_create_stream(frame.stream_id)
@@ -1150,6 +1152,7 @@ module HT2
 
     def apply_remote_settings(settings : SettingsFrame::Settings) : Nil
       settings.each do |param, value|
+        Log.debug { "Applying remote setting: #{param} = #{value}" }
         validate_setting(param, value)
         apply_single_setting(param, value)
         @remote_settings[param] = value
@@ -1161,6 +1164,7 @@ module HT2
       case param
       when SettingsParameter::HEADER_TABLE_SIZE
         @hpack_encoder.update_dynamic_table_size(value)
+        @hpack_decoder.update_settings_max_table_size(value)
       when SettingsParameter::INITIAL_WINDOW_SIZE
         update_stream_windows(value)
       when SettingsParameter::MAX_HEADER_LIST_SIZE
