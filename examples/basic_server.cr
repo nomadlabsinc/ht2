@@ -1,6 +1,13 @@
 require "../src/ht2"
 require "option_parser"
 require "json"
+require "log"
+
+# Enable debug logging
+Log.setup_from_env(
+  default_level: :debug,
+  default_sources: "*"
+)
 
 # Basic HTTP/2 server example demonstrating core functionality
 

@@ -87,6 +87,7 @@ module HT2
     end
 
     private def send_headers(end_stream : Bool)
+      Log.debug { "Response.send_headers called, end_stream=#{end_stream}, headers_sent=#{@headers_sent}" }
       return if @headers_sent
       @headers_sent = true
 
@@ -112,6 +113,7 @@ module HT2
       end
 
       # Send HEADERS frame
+      Log.debug { "Response: Sending #{header_list.size} headers" }
       @stream.send_headers(header_list, end_stream: end_stream)
     end
 

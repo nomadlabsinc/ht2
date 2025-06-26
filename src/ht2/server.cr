@@ -163,17 +163,39 @@ module HT2
       connection.update_settings(settings)
 
       # Set up callbacks
-      connection.on_headers = ->(stream : Stream, _headers : Array(Tuple(String, String)), end_stream : Bool) do
-        if end_stream || stream.request_headers
-          # We have complete headers, process request
+      connection.on_headers = ->(stream : Stream, headers : Array(Tuple(String, String)), end_stream : Bool) do
+        Log.debug { "Server received headers for stream #{stream.id}, end_stream: #{end_stream}, headers_count: #{headers.size}" }
+        Log.debug { "Headers: #{headers.inspect}" }
+
+        # The callback is invoked AFTER headers are set on the stream
+        # Check if these are trailers by looking for pseudo-headers
+        is_trailers = !headers.any? { |(name, _)| name.starts_with?(":") }
+
+        Log.debug { "is_trailers=#{is_trailers}, end_stream=#{end_stream}, stream.end_stream_received=#{stream.end_stream_received?}" }
+
+        if is_trailers && stream.end_stream_received?
+          # Trailers received and stream is complete
+          Log.debug { "Processing request after trailers" }
           submit_stream_task(connection, stream)
+        elsif end_stream && !is_trailers
+          # Initial headers with END_STREAM - process immediately
+          Log.debug { "Processing request immediately (headers with END_STREAM)" }
+          submit_stream_task(connection, stream)
+        elsif !is_trailers && !end_stream
+          # Initial headers without END_STREAM - wait for data or trailers
+          Log.debug { "Received headers without END_STREAM, waiting for more frames" }
+        else
+          Log.debug { "Headers callback: No action taken for stream #{stream.id}" }
         end
       end
 
-      connection.on_data = ->(stream : Stream, _data : Bytes, end_stream : Bool) do
+      connection.on_data = ->(stream : Stream, data : Bytes, end_stream : Bool) do
+        Log.debug { "Server received data for stream #{stream.id}, size: #{data.size}, end_stream: #{end_stream}" }
+
         # Data is accumulated in the stream
         if end_stream && stream.request_headers
-          # Request is complete
+          # Request is complete with final data
+          Log.debug { "Processing request after data with END_STREAM" }
           submit_stream_task(connection, stream)
         end
       end
@@ -258,17 +280,28 @@ module HT2
       configure_connection(connection)
 
       # Set up stream handler
-      connection.on_headers = ->(stream : Stream, _headers : Array(Tuple(String, String)), end_stream : Bool) do
-        if end_stream || stream.request_headers
-          # We have complete headers, process request
+      connection.on_headers = ->(stream : Stream, headers : Array(Tuple(String, String)), end_stream : Bool) do
+        Log.debug { "h2c prior knowledge: received headers for stream #{stream.id}, end_stream: #{end_stream}" }
+
+        # Check if these are trailers by looking for pseudo-headers
+        is_trailers = !headers.any? { |(name, _)| name.starts_with?(":") }
+
+        if is_trailers && stream.end_stream_received?
+          # Trailers received and stream is complete
+          submit_stream_task(connection, stream)
+        elsif end_stream && !is_trailers
+          # Initial headers with END_STREAM - process immediately
           submit_stream_task(connection, stream)
         end
+        # Otherwise, headers without END_STREAM - wait for more data
       end
 
-      connection.on_data = ->(stream : Stream, _data : Bytes, end_stream : Bool) do
+      connection.on_data = ->(stream : Stream, data : Bytes, end_stream : Bool) do
+        Log.debug { "h2c prior knowledge: received data for stream #{stream.id}, size: #{data.size}, end_stream: #{end_stream}" }
+
         # Data is accumulated in the stream
         if end_stream && stream.request_headers
-          # Request is complete
+          # Request is complete with final data
           submit_stream_task(connection, stream)
         end
       end
@@ -332,14 +365,24 @@ module HT2
         connection.apply_remote_settings(remote_settings) if remote_settings
 
         # Set up stream handler
-        connection.on_headers = ->(stream : Stream, _headers : Array(Tuple(String, String)), end_stream : Bool) do
-          if end_stream || stream.request_headers
-            # We have complete headers, process request
+        connection.on_headers = ->(stream : Stream, headers : Array(Tuple(String, String)), end_stream : Bool) do
+          Log.debug { "h2c upgrade: received headers for stream #{stream.id}, end_stream: #{end_stream}" }
+
+          # Check if these are trailers by looking for pseudo-headers
+          is_trailers = !headers.any? { |(name, _)| name.starts_with?(":") }
+
+          if is_trailers && stream.end_stream_received?
+            # Trailers received and stream is complete
+            submit_stream_task(connection, stream)
+          elsif end_stream && !is_trailers
+            # Initial headers with END_STREAM - process immediately
             submit_stream_task(connection, stream)
           end
         end
 
-        connection.on_data = ->(stream : Stream, _data : Bytes, end_stream : Bool) do
+        connection.on_data = ->(stream : Stream, data : Bytes, end_stream : Bool) do
+          Log.debug { "h2c upgrade: received data for stream #{stream.id}, size: #{data.size}, end_stream: #{end_stream}" }
+
           # Data is accumulated in the stream
           if end_stream && stream.request_headers
             # Request is complete
@@ -386,8 +429,15 @@ module HT2
       connection.update_settings(settings)
 
       # Set up callbacks
-      connection.on_headers = ->(stream : Stream, _headers : Array(Tuple(String, String)), end_stream : Bool) do
-        if end_stream || stream.request_headers
+      connection.on_headers = ->(stream : Stream, headers : Array(Tuple(String, String)), end_stream : Bool) do
+        # Check if these are trailers by looking for pseudo-headers
+        is_trailers = !headers.any? { |(name, _)| name.starts_with?(":") }
+
+        if is_trailers && stream.end_stream_received?
+          # Trailers received and stream is complete
+          submit_stream_task(connection, stream)
+        elsif end_stream && !is_trailers
+          # Initial headers with END_STREAM - process immediately
           submit_stream_task(connection, stream)
         end
       end
@@ -466,8 +516,11 @@ module HT2
     end
 
     private def handle_stream(connection : Connection, stream : Stream)
+      Log.debug { "Handling stream #{stream.id} with headers: #{stream.request_headers.inspect}" }
+
       # Create request from stream
       request = Request.from_stream(stream)
+      Log.debug { "Created request for stream #{stream.id}: #{request.method} #{request.path}" }
 
       # Create response
       response = Response.new(stream)
@@ -477,6 +530,7 @@ module HT2
 
       # Ensure response is sent
       response.close unless response.closed?
+      Log.debug { "Completed handling stream #{stream.id}" }
     rescue ex : StreamError
       # Stream error already handled by connection
     rescue ex
