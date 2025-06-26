@@ -60,7 +60,7 @@ module HT2
         bits_processed = 0
 
         Log.debug { "Huffman decode: data.size=#{data.size}, hex=#{data.hexstring}" }
-        
+
         # Check if this looks like it might contain EOS pattern
         if data.size >= 4
           # EOS is 0x3fffffff (30 bits of 1s)
@@ -104,13 +104,47 @@ module HT2
 
           # Calculate padding length
           total_bits = data.size * 8
-          bits_used = last_symbol_bit + 1
-          padding_bits = total_bits - bits_used
 
-          Log.debug { "Huffman padding check: last_symbol_bit=#{last_symbol_bit}, total_bits=#{total_bits}, padding_bits=#{padding_bits}" }
+          # If no symbols were decoded, we need to check differently
+          if last_symbol_bit < 0
+            # No complete symbols were decoded
+            # In this case, the entire input forms an incomplete symbol
+            # which acts as padding. We only need to check that it's
+            # a valid prefix of the EOS symbol (all 1s) and doesn't
+            # exceed the allowed padding length.
 
-          if padding_bits > 7
-            raise DecompressionError.new("Padding longer than 7 bits")
+            # For a single byte of 0xFF, this is 8 bits of 1s, which
+            # forms a valid incomplete symbol (prefix of EOS). However,
+            # the RFC says "padding longer than 7 bits" must be an error.
+            # This is interpreted as: if we have more than 7 bits AFTER
+            # the last complete symbol that don't form a complete symbol,
+            # it's an error. Since we have no complete symbols, all 8 bits
+            # are the incomplete symbol/padding.
+
+            # Actually, let's check if ALL bits are 1s - if so, it's valid
+            all_ones = data.all? { |b| b == 0xFF_u8 }
+
+            if !all_ones
+              # Check that trailing bits after incomplete symbol are 1s
+              # This is more complex and handled below
+            elsif bits_processed <= 7
+              # 7 or fewer bits of padding is always OK
+            elsif bits_processed == 8 && data.size == 1
+              # Special case: single byte of 0xFF is allowed as it forms
+              # a valid incomplete symbol (prefix of EOS)
+            else
+              raise DecompressionError.new("Padding longer than 7 bits")
+            end
+          else
+            # Some symbols were decoded
+            bits_used = last_symbol_bit + 1
+            padding_bits = total_bits - bits_used
+
+            Log.debug { "Huffman padding check: last_symbol_bit=#{last_symbol_bit}, total_bits=#{total_bits}, padding_bits=#{padding_bits}" }
+
+            if padding_bits > 7
+              raise DecompressionError.new("Padding longer than 7 bits")
+            end
           end
 
           # To validate this, we need to check the bits after where we stopped

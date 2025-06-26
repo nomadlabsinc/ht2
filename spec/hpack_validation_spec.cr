@@ -83,7 +83,7 @@ describe "HPACK Validation" do
   describe "Table size validation" do
     it "rejects table size update larger than SETTINGS_HEADER_TABLE_SIZE" do
       # Create decoder with max table size 100
-      decoder = HT2::HPACK::Decoder.new(max_dynamic_table_size: 100_u32)
+      decoder = HT2::HPACK::Decoder.new(max_table_size: 100_u32)
 
       # Try to update to 200
       # 0x3F = 0x20 | 0x1F (use all 5 bits)

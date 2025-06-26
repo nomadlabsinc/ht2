@@ -111,7 +111,7 @@ describe HT2::HeaderValidator do
       end
     end
 
-    it "strips connection-specific headers" do
+    it "rejects connection-specific headers" do
       validator = HT2::HeaderValidator.new(is_request: true)
       headers = [
         {":method", "GET"},
@@ -122,13 +122,9 @@ describe HT2::HeaderValidator do
         {"content-type", "text/plain"},
       ]
 
-      validated = validator.validate(headers)
-      validated.should eq([
-        {":method", "GET"},
-        {":scheme", "https"},
-        {":path", "/"},
-        {"content-type", "text/plain"},
-      ])
+      expect_raises(HT2::StreamError, /Connection-specific header field not allowed/) do
+        validator.validate(headers)
+      end
     end
 
     it "rejects TE header with value other than trailers" do

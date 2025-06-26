@@ -182,24 +182,24 @@ module HT2
       max_wait = 100.milliseconds
       total_waited = 0.milliseconds
       max_total_wait = 5.seconds
-      
+
       while total_waited < max_total_wait
         # Yield to allow other fibers to run
         Fiber.yield
         sleep wait_time
-        
+
         # Check if window is now available
         if calculate_available_size(1) > 0
           return
         end
-        
+
         total_waited += wait_time
         wait_time = Math.min(wait_time * 2, max_wait)
       end
-      
+
       # If we've waited too long, raise an error
       Log.warn { "Stream #{@id}: Timed out waiting for window update after #{total_waited}" }
-      raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR, 
+      raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR,
         "Timed out waiting for flow control window")
     end
 
