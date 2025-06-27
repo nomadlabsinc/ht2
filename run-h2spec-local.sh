@@ -21,18 +21,31 @@ docker run -d --name ht2-server-h2spec -p 8443:8443 ht2-h2spec ./h2spec_server -
 
 # Wait for server to be ready
 echo "⏳ Waiting for server to start..."
-for i in {1..30}; do
-    if curl -k https://localhost:8443/ >/dev/null 2>&1; then
+for i in {1..60}; do
+    if curl -k --http2-prior-knowledge https://localhost:8443/ >/dev/null 2>&1; then
         echo "✅ Server is ready\!"
+        # Give extra time for server to be fully stabilized
+        sleep 2
         break
     fi
-    if [ $i -eq 30 ]; then
-        echo "❌ Server failed to start"
+    if [ $i -eq 60 ]; then
+        echo "❌ Server failed to start within 60 seconds"
         docker logs ht2-server-h2spec
         exit 1
     fi
     sleep 1
 done
+
+# Verify server is actually responding correctly
+echo "🔍 Verifying server response..."
+if response=$(curl -k --http2-prior-knowledge https://localhost:8443/ 2>/dev/null); then
+    echo "Server response length: ${#response} bytes"
+    echo "Server response: '$response'"
+else
+    echo "❌ Server not responding properly"
+    docker logs ht2-server-h2spec
+    exit 1
+fi
 
 # Check if h2spec is installed
 if \! command -v h2spec &> /dev/null; then

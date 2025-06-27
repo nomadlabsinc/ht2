@@ -185,7 +185,7 @@ Hypertext Transfer Protocol Version 2 (HTTP/2)
           3: Sends multiple WINDOW_UPDATE frames increasing the flow control window to above 2^31-1 on a stream        ✔ 3: Sends multiple WINDOW_UPDATE frames increasing the flow control window to above 2^31-1 on a stream
 
       6.9.2. Initial Flow-Control Window Size
-          1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame        using source address [::1]:51170
+          1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame        using source address [::1]:52397
         × 1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame
         Error: Unable to get server data length
           2: Sends a SETTINGS frame for window size to be negative        ✔ 2: Sends a SETTINGS frame for window size to be negative
@@ -266,9 +266,9 @@ Hypertext Transfer Protocol Version 2 (HTTP/2)
   6. Frame Definitions
     6.9. WINDOW_UPDATE
       6.9.2. Initial Flow-Control Window Size
-        using source address [::1]:51170
+        using source address [::1]:52397
         × 1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame
         Error: Unable to get server data length
 
-Finished in 5.1841 seconds
+Finished in 5.1836 seconds
 146 tests, 145 passed, 0 skipped, 1 failed

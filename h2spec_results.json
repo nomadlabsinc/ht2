@@ -1,22 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <testsuites>
   <testsuite name="1. Starting HTTP/2" package="generic/1" id="1" tests="1" skipped="0" failures="0" errors="0">
-    <testcase package="generic/1" classname="Sends a client connection preface" time="0.0001"></testcase>
+    <testcase package="generic/1" classname="Sends a client connection preface" time="0.0002"></testcase>
   </testsuite>
   <testsuite name="2. Streams and Multiplexing" package="generic/2" id="2" tests="5" skipped="0" failures="0" errors="0">
     <testcase package="generic/2" classname="Sends a PRIORITY frame on idle stream" time="0.0003"></testcase>
-    <testcase package="generic/2" classname="Sends a WINDOW_UPDATE frame on half-closed (remote) stream" time="0.0004"></testcase>
-    <testcase package="generic/2" classname="Sends a PRIORITY frame on half-closed (remote) stream" time="0.0004"></testcase>
-    <testcase package="generic/2" classname="Sends a RST_STREAM frame on half-closed (remote) stream" time="0.0003"></testcase>
-    <testcase package="generic/2" classname="Sends a PRIORITY frame on closed stream" time="0.0004"></testcase>
+    <testcase package="generic/2" classname="Sends a WINDOW_UPDATE frame on half-closed (remote) stream" time="0.0005"></testcase>
+    <testcase package="generic/2" classname="Sends a PRIORITY frame on half-closed (remote) stream" time="0.0005"></testcase>
+    <testcase package="generic/2" classname="Sends a RST_STREAM frame on half-closed (remote) stream" time="0.0004"></testcase>
+    <testcase package="generic/2" classname="Sends a PRIORITY frame on closed stream" time="0.0006"></testcase>
   </testsuite>
   <testsuite name="3.1. DATA" package="generic/3.1" id="3.1" tests="3" skipped="0" failures="0" errors="0">
-    <testcase package="generic/3.1" classname="Sends a DATA frame" time="0.0003"></testcase>
-    <testcase package="generic/3.1" classname="Sends multiple DATA frames" time="0.0003"></testcase>
-    <testcase package="generic/3.1" classname="Sends a DATA frame with padding" time="0.0003"></testcase>
+    <testcase package="generic/3.1" classname="Sends a DATA frame" time="0.0004"></testcase>
+    <testcase package="generic/3.1" classname="Sends multiple DATA frames" time="0.0004"></testcase>
+    <testcase package="generic/3.1" classname="Sends a DATA frame with padding" time="0.0004"></testcase>
   </testsuite>
   <testsuite name="3.2. HEADERS" package="generic/3.2" id="3.2" tests="3" skipped="0" failures="0" errors="0">
-    <testcase package="generic/3.2" classname="Sends a HEADERS frame" time="0.0003"></testcase>
+    <testcase package="generic/3.2" classname="Sends a HEADERS frame" time="0.0004"></testcase>
     <testcase package="generic/3.2" classname="Sends a HEADERS frame with padding" time="0.0003"></testcase>
     <testcase package="generic/3.2" classname="Sends a HEADERS frame with priority" time="0.0003"></testcase>
   </testsuite>
@@ -24,11 +24,11 @@
     <testcase package="generic/3.3" classname="Sends a PRIORITY frame with priority 1" time="0.0003"></testcase>
     <testcase package="generic/3.3" classname="Sends a PRIORITY frame with priority 256" time="0.0003"></testcase>
     <testcase package="generic/3.3" classname="Sends a PRIORITY frame with stream dependency" time="0.0003"></testcase>
-    <testcase package="generic/3.3" classname="Sends a PRIORITY frame with exclusive" time="0.0002"></testcase>
+    <testcase package="generic/3.3" classname="Sends a PRIORITY frame with exclusive" time="0.0003"></testcase>
     <testcase package="generic/3.3" classname="Sends a PRIORITY frame for an idle stream, then send a HEADER frame for a lower stream ID" time="0.0003"></testcase>
   </testsuite>
   <testsuite name="3.4. RST_STREAM" package="generic/3.4" id="3.4" tests="1" skipped="0" failures="0" errors="0">
-    <testcase package="generic/3.4" classname="Sends a RST_STREAM frame" time="0.0003"></testcase>
+    <testcase package="generic/3.4" classname="Sends a RST_STREAM frame" time="0.0002"></testcase>
   </testsuite>
   <testsuite name="3.5. SETTINGS" package="generic/3.5" id="3.5" tests="1" skipped="0" failures="0" errors="0">
     <testcase package="generic/3.5" classname="Sends a SETTINGS frame" time="0.0002"></testcase>
@@ -41,10 +41,10 @@
   </testsuite>
   <testsuite name="3.9. WINDOW_UPDATE" package="generic/3.9" id="3.9" tests="2" skipped="0" failures="0" errors="0">
     <testcase package="generic/3.9" classname="Sends a WINDOW_UPDATE frame with stream ID 0" time="0.0002"></testcase>
-    <testcase package="generic/3.9" classname="Sends a WINDOW_UPDATE frame with stream ID 1" time="0.0002"></testcase>
+    <testcase package="generic/3.9" classname="Sends a WINDOW_UPDATE frame with stream ID 1" time="0.0003"></testcase>
   </testsuite>
   <testsuite name="3.10. CONTINUATION" package="generic/3.10" id="3.10" tests="2" skipped="0" failures="0" errors="0">
-    <testcase package="generic/3.10" classname="Sends a CONTINUATION frame" time="0.0004"></testcase>
+    <testcase package="generic/3.10" classname="Sends a CONTINUATION frame" time="0.0003"></testcase>
     <testcase package="generic/3.10" classname="Sends multiple CONTINUATION frames" time="0.0003"></testcase>
   </testsuite>
   <testsuite name="4. HTTP Message Exchanges" package="generic/4" id="4" tests="4" skipped="0" failures="0" errors="0">
@@ -54,9 +54,9 @@
     <testcase package="generic/4" classname="Sends a POST request with trailers" time="0.0004"></testcase>
   </testsuite>
   <testsuite name="5. HPACK" package="generic/5" id="5" tests="15" skipped="0" failures="0" errors="0">
-    <testcase package="generic/5" classname="Sends a indexed header field representation" time="0.0002"></testcase>
+    <testcase package="generic/5" classname="Sends a indexed header field representation" time="0.0003"></testcase>
     <testcase package="generic/5" classname="Sends a literal header field with incremental indexing - indexed name" time="0.0003"></testcase>
-    <testcase package="generic/5" classname="Sends a literal header field with incremental indexing - indexed name (with Huffman coding)" time="0.0002"></testcase>
+    <testcase package="generic/5" classname="Sends a literal header field with incremental indexing - indexed name (with Huffman coding)" time="0.0003"></testcase>
     <testcase package="generic/5" classname="Sends a literal header field with incremental indexing - new name" time="0.0003"></testcase>
     <testcase package="generic/5" classname="Sends a literal header field with incremental indexing - new name (with Huffman coding)" time="0.0003"></testcase>
     <testcase package="generic/5" classname="Sends a literal header field without indexing - indexed name" time="0.0003"></testcase>
@@ -77,30 +77,30 @@
   <testsuite name="4.1. Frame Format" package="http2/4.1" id="4.1" tests="3" skipped="0" failures="0" errors="0">
     <testcase package="http2/4.1" classname="Sends a frame with unknown type" time="0.0002"></testcase>
     <testcase package="http2/4.1" classname="Sends a frame with undefined flag" time="0.0002"></testcase>
-    <testcase package="http2/4.1" classname="Sends a frame with reserved field bit" time="0.0003"></testcase>
+    <testcase package="http2/4.1" classname="Sends a frame with reserved field bit" time="0.0002"></testcase>
   </testsuite>
   <testsuite name="4.2. Frame Size" package="http2/4.2" id="4.2" tests="3" skipped="0" failures="0" errors="0">
-    <testcase package="http2/4.2" classname="Sends a DATA frame with 2^14 octets in length" time="0.0006"></testcase>
+    <testcase package="http2/4.2" classname="Sends a DATA frame with 2^14 octets in length" time="0.0003"></testcase>
     <testcase package="http2/4.2" classname="Sends a large size DATA frame that exceeds the SETTINGS_MAX_FRAME_SIZE" time="0.0003"></testcase>
     <testcase package="http2/4.2" classname="Sends a large size HEADERS frame that exceeds the SETTINGS_MAX_FRAME_SIZE" time="0.0003"></testcase>
   </testsuite>
   <testsuite name="4.3. Header Compression and Decompression" package="http2/4.3" id="4.3" tests="3" skipped="0" failures="0" errors="0">
     <testcase package="http2/4.3" classname="Sends invalid header block fragment" time="0.0002"></testcase>
     <testcase package="http2/4.3" classname="Sends a PRIORITY frame while sending the header blocks" time="0.0002"></testcase>
-    <testcase package="http2/4.3" classname="Sends a HEADERS frame to another stream while sending the header blocks" time="0.0003"></testcase>
+    <testcase package="http2/4.3" classname="Sends a HEADERS frame to another stream while sending the header blocks" time="0.0002"></testcase>
   </testsuite>
   <testsuite name="5.1. Stream States" package="http2/5.1" id="5.1" tests="13" skipped="0" failures="0" errors="0">
-    <testcase package="http2/5.1" classname="idle: Sends a DATA frame" time="0.0003"></testcase>
+    <testcase package="http2/5.1" classname="idle: Sends a DATA frame" time="0.0002"></testcase>
     <testcase package="http2/5.1" classname="idle: Sends a RST_STREAM frame" time="0.0002"></testcase>
     <testcase package="http2/5.1" classname="idle: Sends a WINDOW_UPDATE frame" time="0.0002"></testcase>
     <testcase package="http2/5.1" classname="idle: Sends a CONTINUATION frame" time="0.0002"></testcase>
     <testcase package="http2/5.1" classname="half closed (remote): Sends a DATA frame" time="0.0002"></testcase>
-    <testcase package="http2/5.1" classname="half closed (remote): Sends a HEADERS frame" time="0.0003"></testcase>
+    <testcase package="http2/5.1" classname="half closed (remote): Sends a HEADERS frame" time="0.0002"></testcase>
     <testcase package="http2/5.1" classname="half closed (remote): Sends a CONTINUATION frame" time="0.0002"></testcase>
-    <testcase package="http2/5.1" classname="closed: Sends a DATA frame after sending RST_STREAM frame" time="0.0003"></testcase>
+    <testcase package="http2/5.1" classname="closed: Sends a DATA frame after sending RST_STREAM frame" time="0.0002"></testcase>
     <testcase package="http2/5.1" classname="closed: Sends a HEADERS frame after sending RST_STREAM frame" time="0.0002"></testcase>
-    <testcase package="http2/5.1" classname="closed: Sends a CONTINUATION frame after sending RST_STREAM frame" time="0.0002"></testcase>
-    <testcase package="http2/5.1" classname="closed: Sends a DATA frame" time="0.0003"></testcase>
+    <testcase package="http2/5.1" classname="closed: Sends a CONTINUATION frame after sending RST_STREAM frame" time="0.0003"></testcase>
+    <testcase package="http2/5.1" classname="closed: Sends a DATA frame" time="0.0004"></testcase>
     <testcase package="http2/5.1" classname="closed: Sends a HEADERS frame" time="0.0003"></testcase>
     <testcase package="http2/5.1" classname="closed: Sends a CONTINUATION frame" time="0.0003"></testcase>
   </testsuite>
@@ -113,83 +113,83 @@
   </testsuite>
   <testsuite name="5.3.1. Stream Dependencies" package="http2/5.3.1" id="5.3.1" tests="2" skipped="0" failures="0" errors="0">
     <testcase package="http2/5.3.1" classname="Sends HEADERS frame that depends on itself" time="0.0003"></testcase>
-    <testcase package="http2/5.3.1" classname="Sends PRIORITY frame that depend on itself" time="0.0002"></testcase>
+    <testcase package="http2/5.3.1" classname="Sends PRIORITY frame that depend on itself" time="0.0003"></testcase>
   </testsuite>
   <testsuite name="5.4.1. Connection Error Handling" package="http2/5.4.1" id="5.4.1" tests="1" skipped="0" failures="0" errors="0">
-    <testcase package="http2/5.4.1" classname="Sends an invalid PING frame for connection close" time="0.1006"></testcase>
+    <testcase package="http2/5.4.1" classname="Sends an invalid PING frame for connection close" time="0.1008"></testcase>
   </testsuite>
   <testsuite name="5.5. Extending HTTP/2" package="http2/5.5" id="5.5" tests="2" skipped="0" failures="0" errors="0">
-    <testcase package="http2/5.5" classname="Sends an unknown extension frame" time="0.0007"></testcase>
-    <testcase package="http2/5.5" classname="Sends an unknown extension frame in the middle of a header block" time="0.0011"></testcase>
+    <testcase package="http2/5.5" classname="Sends an unknown extension frame" time="0.0004"></testcase>
+    <testcase package="http2/5.5" classname="Sends an unknown extension frame in the middle of a header block" time="0.0005"></testcase>
   </testsuite>
   <testsuite name="6.1. DATA" package="http2/6.1" id="6.1" tests="3" skipped="0" failures="0" errors="0">
-    <testcase package="http2/6.1" classname="Sends a DATA frame with 0x0 stream identifier" time="0.0006"></testcase>
-    <testcase package="http2/6.1" classname="Sends a DATA frame on the stream that is not in &#34;open&#34; or &#34;half-closed (local)&#34; state" time="0.0003"></testcase>
-    <testcase package="http2/6.1" classname="Sends a DATA frame with invalid pad length" time="0.0003"></testcase>
+    <testcase package="http2/6.1" classname="Sends a DATA frame with 0x0 stream identifier" time="0.0005"></testcase>
+    <testcase package="http2/6.1" classname="Sends a DATA frame on the stream that is not in &#34;open&#34; or &#34;half-closed (local)&#34; state" time="0.0006"></testcase>
+    <testcase package="http2/6.1" classname="Sends a DATA frame with invalid pad length" time="0.0004"></testcase>
   </testsuite>
   <testsuite name="6.2. HEADERS" package="http2/6.2" id="6.2" tests="4" skipped="0" failures="0" errors="0">
-    <testcase package="http2/6.2" classname="Sends a HEADERS frame without the END_HEADERS flag, and a PRIORITY frame" time="0.0002"></testcase>
+    <testcase package="http2/6.2" classname="Sends a HEADERS frame without the END_HEADERS flag, and a PRIORITY frame" time="0.0004"></testcase>
     <testcase package="http2/6.2" classname="Sends a HEADERS frame to another stream while sending a HEADERS frame" time="0.0004"></testcase>
-    <testcase package="http2/6.2" classname="Sends a HEADERS frame with 0x0 stream identifier" time="0.0002"></testcase>
-    <testcase package="http2/6.2" classname="Sends a HEADERS frame with invalid pad length" time="0.0003"></testcase>
+    <testcase package="http2/6.2" classname="Sends a HEADERS frame with 0x0 stream identifier" time="0.0004"></testcase>
+    <testcase package="http2/6.2" classname="Sends a HEADERS frame with invalid pad length" time="0.0004"></testcase>
   </testsuite>
   <testsuite name="6.3. PRIORITY" package="http2/6.3" id="6.3" tests="2" skipped="0" failures="0" errors="0">
-    <testcase package="http2/6.3" classname="Sends a PRIORITY frame with 0x0 stream identifier" time="0.0003"></testcase>
+    <testcase package="http2/6.3" classname="Sends a PRIORITY frame with 0x0 stream identifier" time="0.0164"></testcase>
     <testcase package="http2/6.3" classname="Sends a PRIORITY frame with a length other than 5 octets" time="0.0003"></testcase>
   </testsuite>
   <testsuite name="6.4. RST_STREAM" package="http2/6.4" id="6.4" tests="3" skipped="0" failures="0" errors="0">
-    <testcase package="http2/6.4" classname="Sends a RST_STREAM frame with 0x0 stream identifier" time="0.0002"></testcase>
-    <testcase package="http2/6.4" classname="Sends a RST_STREAM frame on a idle stream" time="0.0002"></testcase>
+    <testcase package="http2/6.4" classname="Sends a RST_STREAM frame with 0x0 stream identifier" time="0.0003"></testcase>
+    <testcase package="http2/6.4" classname="Sends a RST_STREAM frame on a idle stream" time="0.0003"></testcase>
     <testcase package="http2/6.4" classname="Sends a RST_STREAM frame with a length other than 4 octets" time="0.0003"></testcase>
   </testsuite>
   <testsuite name="6.5. SETTINGS" package="http2/6.5" id="6.5" tests="3" skipped="0" failures="0" errors="0">
-    <testcase package="http2/6.5" classname="Sends a SETTINGS frame with ACK flag and payload" time="0.0002"></testcase>
+    <testcase package="http2/6.5" classname="Sends a SETTINGS frame with ACK flag and payload" time="0.0003"></testcase>
     <testcase package="http2/6.5" classname="Sends a SETTINGS frame with a stream identifier other than 0x0" time="0.0003"></testcase>
-    <testcase package="http2/6.5" classname="Sends a SETTINGS frame with a length other than a multiple of 6 octets" time="0.0002"></testcase>
+    <testcase package="http2/6.5" classname="Sends a SETTINGS frame with a length other than a multiple of 6 octets" time="0.0003"></testcase>
   </testsuite>
   <testsuite name="6.5.2. Defined SETTINGS Parameters" package="http2/6.5.2" id="6.5.2" tests="5" skipped="0" failures="0" errors="0">
-    <testcase package="http2/6.5.2" classname="SETTINGS_ENABLE_PUSH (0x2): Sends the value other than 0 or 1" time="0.0002"></testcase>
+    <testcase package="http2/6.5.2" classname="SETTINGS_ENABLE_PUSH (0x2): Sends the value other than 0 or 1" time="0.0003"></testcase>
     <testcase package="http2/6.5.2" classname="SETTINGS_INITIAL_WINDOW_SIZE (0x4): Sends the value above the maximum flow control window size" time="0.0002"></testcase>
     <testcase package="http2/6.5.2" classname="SETTINGS_MAX_FRAME_SIZE (0x5): Sends the value below the initial value" time="0.0002"></testcase>
-    <testcase package="http2/6.5.2" classname="SETTINGS_MAX_FRAME_SIZE (0x5): Sends the value above the maximum allowed frame size" time="0.0003"></testcase>
+    <testcase package="http2/6.5.2" classname="SETTINGS_MAX_FRAME_SIZE (0x5): Sends the value above the maximum allowed frame size" time="0.0002"></testcase>
     <testcase package="http2/6.5.2" classname="Sends a SETTINGS frame with unknown identifier" time="0.0002"></testcase>
   </testsuite>
   <testsuite name="6.5.3. Settings Synchronization" package="http2/6.5.3" id="6.5.3" tests="2" skipped="0" failures="0" errors="0">
-    <testcase package="http2/6.5.3" classname="Sends multiple values of SETTINGS_INITIAL_WINDOW_SIZE" time="0.7256"></testcase>
-    <testcase package="http2/6.5.3" classname="Sends a SETTINGS frame without ACK flag" time="0.0009"></testcase>
+    <testcase package="http2/6.5.3" classname="Sends multiple values of SETTINGS_INITIAL_WINDOW_SIZE" time="0.7145"></testcase>
+    <testcase package="http2/6.5.3" classname="Sends a SETTINGS frame without ACK flag" time="0.0016"></testcase>
   </testsuite>
   <testsuite name="6.7. PING" package="http2/6.7" id="6.7" tests="4" skipped="0" failures="0" errors="0">
-    <testcase package="http2/6.7" classname="Sends a PING frame" time="0.0005"></testcase>
-    <testcase package="http2/6.7" classname="Sends a PING frame with ACK" time="0.0005"></testcase>
-    <testcase package="http2/6.7" classname="Sends a PING frame with a stream identifier field value other than 0x0" time="0.0004"></testcase>
-    <testcase package="http2/6.7" classname="Sends a PING frame with a length field value other than 8" time="0.0007"></testcase>
+    <testcase package="http2/6.7" classname="Sends a PING frame" time="0.0009"></testcase>
+    <testcase package="http2/6.7" classname="Sends a PING frame with ACK" time="0.0013"></testcase>
+    <testcase package="http2/6.7" classname="Sends a PING frame with a stream identifier field value other than 0x0" time="0.0006"></testcase>
+    <testcase package="http2/6.7" classname="Sends a PING frame with a length field value other than 8" time="0.0005"></testcase>
   </testsuite>
   <testsuite name="6.8. GOAWAY" package="http2/6.8" id="6.8" tests="1" skipped="0" failures="0" errors="0">
     <testcase package="http2/6.8" classname="Sends a GOAWAY frame with a stream identifier other than 0x0" time="0.0005"></testcase>
   </testsuite>
   <testsuite name="6.9. WINDOW_UPDATE" package="http2/6.9" id="6.9" tests="3" skipped="0" failures="0" errors="0">
-    <testcase package="http2/6.9" classname="Sends a WINDOW_UPDATE frame with a flow control window increment of 0" time="0.0004"></testcase>
+    <testcase package="http2/6.9" classname="Sends a WINDOW_UPDATE frame with a flow control window increment of 0" time="0.0005"></testcase>
     <testcase package="http2/6.9" classname="Sends a WINDOW_UPDATE frame with a flow control window increment of 0 on a stream" time="0.0005"></testcase>
     <testcase package="http2/6.9" classname="Sends a WINDOW_UPDATE frame with a length other than 4 octets" time="0.0004"></testcase>
   </testsuite>
   <testsuite name="6.9.1. The Flow-Control Window" package="http2/6.9.1" id="6.9.1" tests="3" skipped="0" failures="0" errors="0">
-    <testcase package="http2/6.9.1" classname="Sends SETTINGS frame to set the initial window size to 1 and sends HEADERS frame" time="0.0027"></testcase>
-    <testcase package="http2/6.9.1" classname="Sends multiple WINDOW_UPDATE frames increasing the flow control window to above 2^31-1" time="0.0003"></testcase>
-    <testcase package="http2/6.9.1" classname="Sends multiple WINDOW_UPDATE frames increasing the flow control window to above 2^31-1 on a stream" time="0.0004"></testcase>
+    <testcase package="http2/6.9.1" classname="Sends SETTINGS frame to set the initial window size to 1 and sends HEADERS frame" time="0.0026"></testcase>
+    <testcase package="http2/6.9.1" classname="Sends multiple WINDOW_UPDATE frames increasing the flow control window to above 2^31-1" time="0.0004"></testcase>
+    <testcase package="http2/6.9.1" classname="Sends multiple WINDOW_UPDATE frames increasing the flow control window to above 2^31-1 on a stream" time="0.0005"></testcase>
   </testsuite>
   <testsuite name="6.9.2. Initial Flow-Control Window Size" package="http2/6.9.2" id="6.9.2" tests="3" skipped="0" failures="0" errors="1">
-    <testcase package="http2/6.9.2" classname="Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame" time="2.0018">
+    <testcase package="http2/6.9.2" classname="Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame" time="2.0019">
       <error>Unable to get server data length</error>
     </testcase>
-    <testcase package="http2/6.9.2" classname="Sends a SETTINGS frame for window size to be negative" time="2.0026"></testcase>
-    <testcase package="http2/6.9.2" classname="Sends a SETTINGS_INITIAL_WINDOW_SIZE settings with an exceeded maximum window size value" time="0.0006"></testcase>
+    <testcase package="http2/6.9.2" classname="Sends a SETTINGS frame for window size to be negative" time="1.9961"></testcase>
+    <testcase package="http2/6.9.2" classname="Sends a SETTINGS_INITIAL_WINDOW_SIZE settings with an exceeded maximum window size value" time="0.0005"></testcase>
   </testsuite>
   <testsuite name="6.10. CONTINUATION" package="http2/6.10" id="6.10" tests="6" skipped="0" failures="0" errors="0">
-    <testcase package="http2/6.10" classname="Sends multiple CONTINUATION frames preceded by a HEADERS frame" time="0.0015"></testcase>
-    <testcase package="http2/6.10" classname="Sends a CONTINUATION frame followed by any frame other than CONTINUATION" time="0.0005"></testcase>
-    <testcase package="http2/6.10" classname="Sends a CONTINUATION frame with 0x0 stream identifier" time="0.0008"></testcase>
+    <testcase package="http2/6.10" classname="Sends multiple CONTINUATION frames preceded by a HEADERS frame" time="0.0014"></testcase>
+    <testcase package="http2/6.10" classname="Sends a CONTINUATION frame followed by any frame other than CONTINUATION" time="0.0006"></testcase>
+    <testcase package="http2/6.10" classname="Sends a CONTINUATION frame with 0x0 stream identifier" time="0.0005"></testcase>
     <testcase package="http2/6.10" classname="Sends a CONTINUATION frame preceded by a HEADERS frame with END_HEADERS flag" time="0.0005"></testcase>
-    <testcase package="http2/6.10" classname="Sends a CONTINUATION frame preceded by a CONTINUATION frame with END_HEADERS flag" time="0.0009"></testcase>
+    <testcase package="http2/6.10" classname="Sends a CONTINUATION frame preceded by a CONTINUATION frame with END_HEADERS flag" time="0.0008"></testcase>
     <testcase package="http2/6.10" classname="Sends a CONTINUATION frame preceded by a DATA frame" time="0.0004"></testcase>
   </testsuite>
   <testsuite name="7. Error Codes" package="http2/7" id="7" tests="2" skipped="0" failures="0" errors="0">
@@ -197,7 +197,7 @@
     <testcase package="http2/7" classname="Sends a RST_STREAM frame with unknown error code" time="0.0005"></testcase>
   </testsuite>
   <testsuite name="8.1. HTTP Request/Response Exchange" package="http2/8.1" id="8.1" tests="1" skipped="0" failures="0" errors="0">
-    <testcase package="http2/8.1" classname="Sends a second HEADERS frame without the END_STREAM flag" time="0.0005"></testcase>
+    <testcase package="http2/8.1" classname="Sends a second HEADERS frame without the END_STREAM flag" time="0.0004"></testcase>
   </testsuite>
   <testsuite name="8.1.2. HTTP Header Fields" package="http2/8.1.2" id="8.1.2" tests="1" skipped="0" failures="0" errors="0">
     <testcase package="http2/8.1.2" classname="Sends a HEADERS frame that contains the header field name in uppercase letters" time="0.0004"></testcase>
@@ -210,20 +210,20 @@
   </testsuite>
   <testsuite name="8.1.2.2. Connection-Specific Header Fields" package="http2/8.1.2.2" id="8.1.2.2" tests="2" skipped="0" failures="0" errors="0">
     <testcase package="http2/8.1.2.2" classname="Sends a HEADERS frame that contains the connection-specific header field" time="0.0004"></testcase>
-    <testcase package="http2/8.1.2.2" classname="Sends a HEADERS frame that contains the TE header field with any value other than &#34;trailers&#34;" time="0.0004"></testcase>
+    <testcase package="http2/8.1.2.2" classname="Sends a HEADERS frame that contains the TE header field with any value other than &#34;trailers&#34;" time="0.0003"></testcase>
   </testsuite>
   <testsuite name="8.1.2.3. Request Pseudo-Header Fields" package="http2/8.1.2.3" id="8.1.2.3" tests="7" skipped="0" failures="0" errors="0">
     <testcase package="http2/8.1.2.3" classname="Sends a HEADERS frame with empty &#34;:path&#34; pseudo-header field" time="0.0003"></testcase>
     <testcase package="http2/8.1.2.3" classname="Sends a HEADERS frame that omits &#34;:method&#34; pseudo-header field" time="0.0004"></testcase>
-    <testcase package="http2/8.1.2.3" classname="Sends a HEADERS frame that omits &#34;:scheme&#34; pseudo-header field" time="0.0004"></testcase>
+    <testcase package="http2/8.1.2.3" classname="Sends a HEADERS frame that omits &#34;:scheme&#34; pseudo-header field" time="0.0003"></testcase>
     <testcase package="http2/8.1.2.3" classname="Sends a HEADERS frame that omits &#34;:path&#34; pseudo-header field" time="0.0003"></testcase>
     <testcase package="http2/8.1.2.3" classname="Sends a HEADERS frame with duplicated &#34;:method&#34; pseudo-header field" time="0.0003"></testcase>
-    <testcase package="http2/8.1.2.3" classname="Sends a HEADERS frame with duplicated &#34;:scheme&#34; pseudo-header field" time="0.0003"></testcase>
+    <testcase package="http2/8.1.2.3" classname="Sends a HEADERS frame with duplicated &#34;:scheme&#34; pseudo-header field" time="0.0002"></testcase>
     <testcase package="http2/8.1.2.3" classname="Sends a HEADERS frame with duplicated &#34;:path&#34; pseudo-header field" time="0.0002"></testcase>
   </testsuite>
   <testsuite name="8.1.2.6. Malformed Requests and Responses" package="http2/8.1.2.6" id="8.1.2.6" tests="2" skipped="0" failures="0" errors="0">
     <testcase package="http2/8.1.2.6" classname="Sends a HEADERS frame with the &#34;content-length&#34; header field which does not equal the DATA frame payload length" time="0.0002"></testcase>
-    <testcase package="http2/8.1.2.6" classname="Sends a HEADERS frame with the &#34;content-length&#34; header field which does not equal the sum of the multiple DATA frames payload length" time="0.0003"></testcase>
+    <testcase package="http2/8.1.2.6" classname="Sends a HEADERS frame with the &#34;content-length&#34; header field which does not equal the sum of the multiple DATA frames payload length" time="0.0002"></testcase>
   </testsuite>
   <testsuite name="8.2. Server Push" package="http2/8.2" id="8.2" tests="1" skipped="0" failures="0" errors="0">
     <testcase package="http2/8.2" classname="Sends a PUSH_PROMISE frame" time="0.0002"></testcase>
@@ -233,11 +233,11 @@
     <testcase package="hpack/2.3.3" classname="Sends a literal header field representation with invalid index" time="0.0002"></testcase>
   </testsuite>
   <testsuite name="4.2. Maximum Table Size" package="hpack/4.2" id="4.2" tests="1" skipped="0" failures="0" errors="0">
-    <testcase package="hpack/4.2" classname="Sends a dynamic table size update at the end of header block" time="0.0002"></testcase>
+    <testcase package="hpack/4.2" classname="Sends a dynamic table size update at the end of header block" time="0.0004"></testcase>
   </testsuite>
   <testsuite name="5.2. String Literal Representation" package="hpack/5.2" id="5.2" tests="3" skipped="0" failures="0" errors="0">
-    <testcase package="hpack/5.2" classname="Sends a Huffman-encoded string literal representation with padding longer than 7 bits" time="0.0002"></testcase>
-    <testcase package="hpack/5.2" classname="Sends a Huffman-encoded string literal representation padded by zero" time="0.0003"></testcase>
+    <testcase package="hpack/5.2" classname="Sends a Huffman-encoded string literal representation with padding longer than 7 bits" time="0.0003"></testcase>
+    <testcase package="hpack/5.2" classname="Sends a Huffman-encoded string literal representation padded by zero" time="0.0002"></testcase>
     <testcase package="hpack/5.2" classname="Sends a Huffman-encoded string literal representation containing the EOS symbol" time="0.0002"></testcase>
   </testsuite>
   <testsuite name="6.1. Indexed Header Field Representation" package="hpack/6.1" id="6.1" tests="1" skipped="0" failures="0" errors="0">
