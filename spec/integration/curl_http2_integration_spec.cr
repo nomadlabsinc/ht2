@@ -209,8 +209,8 @@ describe "HTTP/2 Server Curl Integration" do
 
         # Debug output if test fails
         if result[:exit_code] != 0
-          puts "CURL EXIT CODE: #{result[:exit_code]}"
-          puts "CURL OUTPUT: #{result[:output]}"
+          # CURL EXIT CODE: #{result[:exit_code]}
+          # CURL OUTPUT: #{result[:output]}
         end
 
         # POST requests should now work correctly
@@ -531,18 +531,18 @@ describe "HTTP/2 Server Curl Integration" do
         result = CurlTestHelpers.execute_curl("curl -s --insecure --http2 https://127.0.0.1:#{port}/large-response 2>/dev/null", timeout: 1.second)
 
         # Debug output - always show it
-        puts "\nLARGE RESPONSE DEBUG:"
-        puts "Exit code: #{result[:exit_code]}"
-        puts "Error: #{result[:error]}"
-        puts "Output length: #{result[:output].size}"
-        puts "First 500 chars:\n#{result[:output][0...500]}"
-        puts "Last 500 chars:\n#{result[:output][-500..-1]}" if result[:output].size > 500
+        # \nLARGE RESPONSE DEBUG:
+        # Exit code: #{result[:exit_code]}
+        # Error: #{result[:error]}
+        # Output length: #{result[:output].size}
+        # First 500 chars:\n#{result[:output][0...500]}
+        # Last 500 chars:\n#{result[:output][-500..-1]} if result[:output].size > 500
 
         # Large response bodies should work correctly
         result[:exit_code].should eq(0)
         # Parse the JSON directly since we're not using verbose mode
         if result[:output].empty?
-          puts "ERROR: No output received from curl"
+          # ERROR: No output received from curl
         else
           response = JSON.parse(result[:output])
           response.as_a.size.should eq(500)
@@ -990,7 +990,7 @@ PYTHON
           result = CurlTestHelpers.execute_curl("python3 #{script_path} 2>&1")
 
           if result[:exit_code] != 0
-            puts "Python script error output: #{result[:output]}"
+            # Python script error output: #{result[:output]}
           end
           result[:exit_code].should eq(0)
           response = JSON.parse(result[:output])

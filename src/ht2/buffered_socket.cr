@@ -53,9 +53,7 @@ module HT2
       # If more bytes needed, read directly from IO
       if bytes_read < slice.size
         remaining = slice.size - bytes_read
-        Log.debug { "BufferedSocket: Reading #{remaining} bytes directly from IO" }
         direct_bytes = @io.read(slice[bytes_read, remaining])
-        Log.debug { "BufferedSocket: Read #{direct_bytes} bytes from IO" }
         bytes_read += direct_bytes
       end
 

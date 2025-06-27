@@ -112,7 +112,7 @@ def create_tls_client_socket(host : String, port : Int32) : OpenSSL::SSL::Socket
       raise "ALPN negotiation failed: got #{tls_socket.alpn_protocol.inspect}, expected 'h2'"
     end
   rescue ex
-    puts "TLS handshake failed: #{ex.message}"
+    # TLS handshake failed: #{ex.message}
     raise ex
   end
 

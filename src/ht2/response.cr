@@ -41,10 +41,21 @@ module HT2
       # Send data immediately instead of buffering
       # Use chunked sending for large data to handle flow control
       if data.size > 0
-        Log.debug { "Response.write: Sending #{data.size} bytes of data" }
-        # Use larger chunks to avoid exhausting the window too quickly
-        # The default window size is 65535, so use 32768 to allow 2 chunks
-        @stream.send_data_chunked(data, chunk_size: 32_768, end_stream: false)
+        # Check available window size
+        stream_window = @stream.send_window_size
+        conn_window = @stream.connection.window_size
+        available_window = Math.min(stream_window, conn_window)
+
+        # For very small windows, use a small chunk size to ensure we can send something
+        chunk_size = if available_window > 0 && available_window < 1024
+                       # Use the available window size as chunk size for small windows
+                       available_window.to_i32
+                     else
+                       # Use larger chunks for normal windows to avoid exhausting too quickly
+                       32_768
+                     end
+
+        @stream.send_data_chunked(data, chunk_size: chunk_size, end_stream: false)
       end
     end
 
@@ -53,11 +64,9 @@ module HT2
       @closed = true
 
       if @headers_sent
-        Log.debug { "Response.close: Sending empty DATA frame with END_STREAM" }
         # Send empty DATA frame with END_STREAM to close the stream
         @stream.send_data(Bytes.empty, end_stream: true)
       else
-        Log.debug { "Response.close: Sending headers with END_STREAM" }
         # Send headers with END_STREAM
         send_headers(end_stream: true)
       end

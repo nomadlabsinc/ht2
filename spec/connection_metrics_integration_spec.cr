@@ -163,10 +163,10 @@ describe "Connection Metrics Integration" do
 
     # Debug output if test fails
     unless client_metrics[:state][:goaway_sent]
-      puts "Debug: client goaway_sent flag = #{client_conn.goaway_sent?}"
-      puts "Debug: client closed flag = #{client_conn.closed?}"
-      puts "Debug: client metrics = #{client_metrics[:state]}"
-      puts "Debug: frames sent = #{client_metrics[:frames][:sent]}"
+      # Debug: client goaway_sent flag = client_conn.goaway_sent?
+      # Debug: client closed flag = client_conn.closed?
+      # Debug: client metrics = client_metrics[:state]
+      # Debug: frames sent = client_metrics[:frames][:sent]
     end
 
     client_metrics[:state][:goaway_sent].should be_true
