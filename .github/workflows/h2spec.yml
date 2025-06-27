@@ -54,6 +54,7 @@ jobs:
         EXIT_CODE=$?
         SUMMARY=$(tail -1 h2spec_results.txt)
         echo "Summary: $SUMMARY"
+        echo "Exit code: $EXIT_CODE"
         
         # Show failures if any
         if [ $EXIT_CODE -ne 0 ]; then
@@ -68,6 +69,7 @@ jobs:
         # 6.5.3/1 "Sends multiple values of SETTINGS_INITIAL_WINDOW_SIZE" - Unable to get server data length
         # 6.9.2/2 appears to be skipped
         PASSED=$(echo "$SUMMARY" | grep -o '[0-9]* passed' | grep -o '[0-9]*' || echo "0")
+        echo "Extracted PASSED count: $PASSED"
         if [ "$PASSED" -ge 144 ]; then
           echo "✅ H2spec compliance: $PASSED/146 tests passed (acceptable)"
           exit 0
