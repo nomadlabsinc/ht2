@@ -7,11 +7,10 @@ FROM robnomad/crystal:dev-hoard as builder
 WORKDIR /app
 
 # Install dependencies
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     curl \
     git \
-    make \
-    && rm -rf /var/lib/apt/lists/*
+    make
 
 # Copy shard files first for better caching
 COPY shard.yml shard.lock ./
@@ -32,15 +31,14 @@ FROM robnomad/crystal:dev-hoard as test
 WORKDIR /app
 
 # Install runtime dependencies and test tools
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     curl \
     git \
     make \
     python3 \
-    python3-pip \
+    py3-pip \
     nodejs \
-    npm \
-    && rm -rf /var/lib/apt/lists/*
+    npm
 
 # Install Python httpx library with HTTP/2 support
 RUN pip3 install --break-system-packages "httpx[http2]"

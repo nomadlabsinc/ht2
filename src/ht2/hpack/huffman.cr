@@ -44,13 +44,53 @@ module HT2
 
       # Decode Huffman encoded data
       def decode(data : Bytes) : String
+        # First check for EOS pattern (30 consecutive 1s) in the raw data
+        # This is required by RFC 7541 Section 5.2
+        check_for_eos_pattern(data)
+
         String.build do |str|
           decode(data) { |byte| str.write_byte(byte) }
         end
+      rescue ex : DecompressionError
+        # Re-raise decompression errors with EOS check info
+        Log.warn { "Huffman decode failed: #{ex.message}" }
+        raise ex
+      end
+
+      # Check if the data contains the EOS pattern (30 consecutive 1s)
+      private def check_for_eos_pattern(data : Bytes) : Nil
+        return if data.size < 4 # Need at least 4 bytes for 30 bits
+
+        Log.trace { "Checking for EOS pattern in #{data.size} bytes: #{data.hexstring}" }
+
+        # Track consecutive 1s using a sliding window
+        ones_count = 0
+        max_ones = 0
+
+        data.each_with_index do |byte, byte_idx|
+          8.times do |bit_idx|
+            if byte & (0x80 >> bit_idx) != 0
+              ones_count += 1
+              max_ones = ones_count if ones_count > max_ones
+              if ones_count >= 30
+                Log.error { "EOS pattern (30 consecutive 1s) found in Huffman data at byte #{byte_idx}, bit #{bit_idx}" }
+                raise DecompressionError.new("EOS symbol found in Huffman data")
+              end
+            else
+              ones_count = 0
+            end
+          end
+        end
+
+        Log.trace { "Max consecutive 1s found: #{max_ones}" }
       end
 
       def decode(data : Bytes, &)
         return if data.empty?
+
+        # First check for EOS pattern (30 consecutive 1s) in the raw data
+        # This is required by RFC 7541 Section 5.2
+        check_for_eos_pattern(data)
 
         # Build decode tree for efficient decoding
         root = build_decode_tree
