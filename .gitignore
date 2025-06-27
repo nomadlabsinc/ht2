@@ -11,3 +11,6 @@
 *.cr.swp
 *~
 *.tmp
+
+# H2spec test results
+/h2spec-results/

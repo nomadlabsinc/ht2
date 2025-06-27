@@ -90,7 +90,40 @@ lint:
 	docker run --rm -v $(PWD):/app -w /app crystallang/crystal:$(CRYSTAL_VERSION)-alpine \
 		sh -c "shards install && crystal tool format --check && ameba src spec --except Metrics/CyclomaticComplexity"
 
+# H2spec compliance testing
+h2spec-build:
+	docker build -f Dockerfile.h2spec -t ht2-h2spec .
+
+# Run H2spec tests split into parts (like CI)
+h2spec: h2spec-build
+	@echo "Running H2spec compliance tests (split mode)..."
+	@mkdir -p h2spec-results
+	docker-compose -f docker-compose.h2spec.yml up --abort-on-container-exit h2spec-server h2spec-part1 h2spec-part2
+
+# Run H2spec Part 1 only (sections 3-5)
+h2spec-part1: h2spec-build
+	@echo "Running H2spec Part 1 (sections 3-5)..."
+	@mkdir -p h2spec-results
+	docker-compose -f docker-compose.h2spec.yml up --abort-on-container-exit h2spec-server h2spec-part1
+
+# Run H2spec Part 2 only (sections 6-8)
+h2spec-part2: h2spec-build
+	@echo "Running H2spec Part 2 (sections 6-8)..."
+	@mkdir -p h2spec-results
+	docker-compose -f docker-compose.h2spec.yml up --abort-on-container-exit h2spec-server h2spec-part2
+
+# Run full H2spec test suite (may have probe failures)
+h2spec-full: h2spec-build
+	@echo "Running full H2spec test suite (may have probe failures)..."
+	@mkdir -p h2spec-results
+	docker-compose -f docker-compose.h2spec.yml up --abort-on-container-exit h2spec-server h2spec-full
+
+# Clean up H2spec containers and results
+h2spec-clean:
+	docker-compose -f docker-compose.h2spec.yml down -v
+	rm -rf h2spec-results
+
 # Clean up
-clean:
+clean: h2spec-clean
 	rm -rf bin lib .crystal .shards
 	docker-compose -f docker-compose.test.yml down -v
