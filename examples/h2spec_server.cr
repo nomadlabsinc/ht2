@@ -52,42 +52,42 @@ def get_tls_context(cert_file : String?, key_file : String?) : OpenSSL::SSL::Con
       return HT2::Server.create_tls_context(cert_path, key_path)
     end
   end
-  
+
   # Check if Docker build certificates exist (from Dockerfile.h2spec)
   if File.exists?("/certs/server.crt") && File.exists?("/certs/server.key")
     puts "🔐 Using pre-generated certificates from Docker build..."
     return HT2::Server.create_tls_context("/certs/server.crt", "/certs/server.key")
   end
-  
+
   # Generate dev certificate ONCE and reuse
   puts "🔐 Generating reusable self-signed certificate..."
-  
+
   # Use fixed paths to reuse certificates across connections
   cert_file_path = "/tmp/ht2_reusable_cert.pem"
   key_file_path = "/tmp/ht2_reusable_key.pem"
-  
+
   # Only generate if they don't exist
   unless File.exists?(cert_file_path) && File.exists?(key_file_path)
     # Generate RSA key
     unless system("openssl genrsa -out #{key_file_path} 2048 2>/dev/null")
       raise "Failed to generate RSA key"
     end
-    
+
     # Generate self-signed certificate
     unless system("openssl req -new -x509 -key #{key_file_path} -out #{cert_file_path} -days 365 -subj '/CN=localhost' 2>/dev/null")
       raise "Failed to generate certificate"
     end
-    
+
     puts "✅ Generated reusable certificates at #{cert_file_path} and #{key_file_path}"
   else
     puts "✅ Reusing existing certificates"
   end
-  
+
   context = OpenSSL::SSL::Context::Server.new
   context.certificate_chain = cert_file_path
   context.private_key = key_file_path
   context.alpn_protocol = "h2"
-  
+
   context
 end
 
@@ -100,21 +100,21 @@ request_count = Atomic(Int32).new(0)
 # Create request handler optimized for h2spec
 handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Response) do
   count = request_count.add(1)
-  
+
   # Force garbage collection every 20 requests to prevent accumulation
   if count % 20 == 0
     GC.collect
     Log.debug { "[#{count}] Forced GC collection" }
   end
-  
+
   Log.info { "[#{count}] #{request.method} #{request.path}" }
-  
+
   begin
     # Always respond with 200 OK
     response.status = 200
     response.headers["content-type"] = "text/plain"
     response.headers["server"] = "ht2-h2spec"
-    
+
     # Smart response size based on request count for h2spec probe compatibility
     # The first few requests are likely h2spec probes - they need consistent data length
     # Later requests are the actual tests with specific window size requirements
@@ -125,17 +125,17 @@ handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Resp
                   # Later requests: send exactly 1 byte for window size tests
                   1
                 end
-    
+
     response.headers["content-length"] = data_size.to_s
-    
+
     # Send the appropriate amount of data
     data = "x" * data_size
     Log.debug { "[#{count}] Sending #{data.size} bytes of data" }
     response.write(data.to_slice)
-    
+
     # Ensure response is properly closed with END_STREAM
     response.close
-    
+
     Log.debug { "[#{count}] Response completed successfully" }
   rescue ex
     Log.error { "[#{count}] Error handling request: #{ex.class}: #{ex.message}" }
@@ -159,8 +159,8 @@ server = HT2::Server.new(
   initial_window_size: 65_535_u32,
   max_frame_size: 16_384_u32,
   # Optimize for h2spec testing - reduce resource accumulation
-  max_workers: 50,        # Smaller pool to prevent saturation
-  worker_queue_size: 500  # Smaller queue to fail fast if overwhelmed
+  max_workers: 50,       # Smaller pool to prevent saturation
+  worker_queue_size: 500 # Smaller queue to fail fast if overwhelmed
 )
 
 # Handle shutdown gracefully

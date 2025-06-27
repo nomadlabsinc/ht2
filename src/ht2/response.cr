@@ -42,14 +42,14 @@ module HT2
       # Use chunked sending for large data to handle flow control
       if data.size > 0
         Log.debug { "Response.write: Sending #{data.size} bytes of data" }
-        
+
         # Check available window size
         stream_window = @stream.send_window_size
         conn_window = @stream.connection.window_size
         available_window = Math.min(stream_window, conn_window)
-        
+
         Log.debug { "Response.write: stream_window=#{stream_window}, conn_window=#{conn_window}, available=#{available_window}" }
-        
+
         # For very small windows, use a small chunk size to ensure we can send something
         chunk_size = if available_window > 0 && available_window < 1024
                        # Use the available window size as chunk size for small windows
@@ -58,7 +58,7 @@ module HT2
                        # Use larger chunks for normal windows to avoid exhausting too quickly
                        32_768
                      end
-        
+
         @stream.send_data_chunked(data, chunk_size: chunk_size, end_stream: false)
       end
     end

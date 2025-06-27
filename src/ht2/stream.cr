@@ -139,7 +139,7 @@ module HT2
                       else
                         @send_window_size.to_i32
                       end
-        
+
         conn_window = if @connection.window_size > Int32::MAX
                         Int32::MAX
                       elsif @connection.window_size < Int32::MIN
@@ -147,7 +147,7 @@ module HT2
                       else
                         @connection.window_size.to_i32
                       end
-        
+
         available_window = Math.min(send_window, conn_window)
         # Only clamp to 0 for the buffer manager
         buffer_mgr.recommended_chunk_size(Math.max(0, available_window))
