@@ -115,16 +115,9 @@ handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Resp
     response.headers["content-type"] = "text/plain"
     response.headers["server"] = "ht2-h2spec"
 
-    # Smart response size based on request count for h2spec probe compatibility
-    # The first few requests are likely h2spec probes - they need consistent data length
-    # Later requests are the actual tests with specific window size requirements
-    data_size = if count <= 5
-                  # Early requests: send more data for proper probe measurement
-                  1024
-                else
-                  # Later requests: send exactly 1 byte for window size tests
-                  1
-                end
+    # Always send 1 byte of data for consistent h2spec behavior
+    # This ensures h2spec can always measure server data length
+    data_size = 1
 
     response.headers["content-length"] = data_size.to_s
 
@@ -176,7 +169,7 @@ end
 # Start server
 puts "🚀 HT2 H2spec Server"
 puts "🔒 Listening on https://#{host}:#{port}"
-puts "📝 This server always sends exactly 1 byte for h2spec compliance"
+puts "📝 This server always sends exactly 1 byte of data for h2spec compliance"
 puts ""
 puts "Run h2spec with:"
 puts "  h2spec -h #{host} -p #{port} -t -k"
