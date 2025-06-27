@@ -93,12 +93,10 @@ jobs:
           sleep 1
         done
         
-        # Run part 2 tests and save to both files
+        # Run part 2 tests
         docker run --rm --network h2spec-net \
-          -v $PWD:/workspace \
           summerwind/h2spec:2.6.0 \
           -h ht2-server-part2 -p 8443 -t -k \
-          -j /workspace/h2spec_results.json \
           http2/6.9 http2/6.10 http2/7 http2/8 hpack \
           > part2_results.txt 2>&1
         
@@ -109,8 +107,11 @@ jobs:
         
         # Show part 2 details if it failed
         if [ $PART2_EXIT -ne 0 ]; then
-          echo "Part 2 failed! Details:"
-          tail -20 part2_results.txt
+          echo "Part 2 failed! Full output:"
+          cat part2_results.txt
+          echo ""
+          echo "Server logs:"
+          docker logs ht2-server-part2 || true
         fi
         
         # Combine results for artifact
@@ -152,9 +153,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: h2spec-results
-        path: |
-          h2spec_results.txt
-          h2spec_results.json
+        path: h2spec_results.txt
     
     - name: Cleanup
       if: always()
