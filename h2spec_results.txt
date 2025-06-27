@@ -1,3 +1,29 @@
+Unable to find image 'summerwind/h2spec:2.6.0' locally
+2.6.0: Pulling from summerwind/h2spec
+7595c8c21622: Pulling fs layer
+d13af8ca898f: Pulling fs layer
+70799171ddba: Pulling fs layer
+b6c12202c5ef: Pulling fs layer
+c507fbd6f6f2: Pulling fs layer
+b6c12202c5ef: Waiting
+c507fbd6f6f2: Waiting
+d13af8ca898f: Verifying Checksum
+d13af8ca898f: Download complete
+70799171ddba: Verifying Checksum
+70799171ddba: Download complete
+7595c8c21622: Verifying Checksum
+7595c8c21622: Download complete
+b6c12202c5ef: Verifying Checksum
+b6c12202c5ef: Download complete
+c507fbd6f6f2: Verifying Checksum
+c507fbd6f6f2: Download complete
+7595c8c21622: Pull complete
+d13af8ca898f: Pull complete
+70799171ddba: Pull complete
+b6c12202c5ef: Pull complete
+c507fbd6f6f2: Pull complete
+Digest: sha256:5f4a65c30cae8569558ced048b4bfe0dcf01a221e36767ae504ccd8348a7aeb0
+Status: Downloaded newer image for summerwind/h2spec:2.6.0
 Generic tests for HTTP/2 server
   1. Starting HTTP/2
       1: Sends a client connection preface    ✔ 1: Sends a client connection preface
@@ -162,7 +188,9 @@ Hypertext Transfer Protocol Version 2 (HTTP/2)
           5: Sends a SETTINGS frame with unknown identifier        ✔ 5: Sends a SETTINGS frame with unknown identifier
 
       6.5.3. Settings Synchronization
-          1: Sends multiple values of SETTINGS_INITIAL_WINDOW_SIZE        ✔ 1: Sends multiple values of SETTINGS_INITIAL_WINDOW_SIZE
+          1: Sends multiple values of SETTINGS_INITIAL_WINDOW_SIZE        using source address 172.18.0.3:51134
+        × 1: Sends multiple values of SETTINGS_INITIAL_WINDOW_SIZE
+        Error: Unable to get server data length
           2: Sends a SETTINGS frame without ACK flag        ✔ 2: Sends a SETTINGS frame without ACK flag
 
     6.7. PING
@@ -185,10 +213,8 @@ Hypertext Transfer Protocol Version 2 (HTTP/2)
           3: Sends multiple WINDOW_UPDATE frames increasing the flow control window to above 2^31-1 on a stream        ✔ 3: Sends multiple WINDOW_UPDATE frames increasing the flow control window to above 2^31-1 on a stream
 
       6.9.2. Initial Flow-Control Window Size
-          1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame        using source address [::1]:52397
-        × 1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame
-        Error: Unable to get server data length
-          2: Sends a SETTINGS frame for window size to be negative        ✔ 2: Sends a SETTINGS frame for window size to be negative
+          1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame        ✔ 1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame
+          2: Sends a SETTINGS frame for window size to be negative        2: Sends a SETTINGS frame for window size to be negative
           3: Sends a SETTINGS_INITIAL_WINDOW_SIZE settings with an exceeded maximum window size value        ✔ 3: Sends a SETTINGS_INITIAL_WINDOW_SIZE settings with an exceeded maximum window size value
 
     6.10. CONTINUATION
@@ -264,11 +290,11 @@ Failures:
 
 Hypertext Transfer Protocol Version 2 (HTTP/2)
   6. Frame Definitions
-    6.9. WINDOW_UPDATE
-      6.9.2. Initial Flow-Control Window Size
-        using source address [::1]:52397
-        × 1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame
+    6.5. SETTINGS
+      6.5.3. Settings Synchronization
+        using source address 172.18.0.3:51134
+        × 1: Sends multiple values of SETTINGS_INITIAL_WINDOW_SIZE
         Error: Unable to get server data length
 
-Finished in 5.1836 seconds
-146 tests, 145 passed, 0 skipped, 1 failed
+Finished in 10.2921 seconds
+146 tests, 144 passed, 1 skipped, 1 failed
