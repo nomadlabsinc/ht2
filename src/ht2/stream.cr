@@ -1,4 +1,5 @@
 require "./adaptive_flow_control"
+require "./content_length_validator"
 require "./security"
 require "./stream_state_machine"
 require "log"
@@ -25,9 +26,18 @@ module HT2
 
     property request_headers : Array(Tuple(String, String))?
     property response_headers : Array(Tuple(String, String))?
+    property request_trailers : Array(Tuple(String, String))?
+    property response_trailers : Array(Tuple(String, String))?
     property data : IO::Memory
     property? end_stream_sent : Bool
     property? end_stream_received : Bool
+
+    # Error tracking for state isolation
+    getter error_count : UInt32 = 0_u32
+    getter protocol_errors : UInt32 = 0_u32
+    getter flow_control_errors : UInt32 = 0_u32
+    getter last_error_time : Time?
+    getter created_at : Time
 
     def received_data : Bytes
       @data.to_slice
@@ -46,6 +56,15 @@ module HT2
         @recv_window_size,
         AdaptiveFlowControl::Strategy::DYNAMIC
       )
+      @content_length_validator = ContentLengthValidator.new
+      @window_update_channel = Channel(Nil).new(1)
+
+      # Error tracking initialization
+      @error_count = 0_u32
+      @protocol_errors = 0_u32
+      @flow_control_errors = 0_u32
+      @last_error_time = nil
+      @created_at = Time.utc
     end
 
     def send_headers(headers : Array(Tuple(String, String)), end_stream : Bool = false) : Nil
@@ -71,17 +90,32 @@ module HT2
     def send_data(data : Bytes, end_stream : Bool = false) : Nil
       @state_machine.validate_send_data
 
-      Log.debug do
-        "Stream.send_data: size=#{data.size}, send_window=#{@send_window_size}, " \
-        "conn_window=#{@connection.window_size}"
+      # Check flow control window - RFC 7540 Section 6.9.2
+      # If window is negative or zero, we cannot send any data
+      # If window is positive but smaller than data size, we cannot send this amount
+      if @send_window_size <= 0
+        record_error(:flow_control)
+        # For h2spec testing, if window is 0 and we have no data to send,
+        # try to recover by sending an empty DATA frame to complete the response
+        if data.size == 0 && @send_window_size == 0
+          # Send empty frame to complete the stream without violating flow control
+          flags = end_stream ? FrameFlags::END_STREAM : FrameFlags::None
+          frame = DataFrame.new(@id, Bytes.empty, flags)
+          @connection.send_frame(frame)
+          @end_stream_sent = true if end_stream
+          update_state_after_data_sent(end_stream)
+          return
+        end
+        raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR, "Cannot send data: flow control window is not positive (#{@send_window_size})")
       end
 
-      # Check flow control window
       if data.size > @send_window_size
+        record_error(:flow_control)
         raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR, "Data size exceeds window")
       end
 
       if data.size > @connection.window_size
+        record_error(:flow_control)
         raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "Data size exceeds connection window")
       end
 
@@ -90,6 +124,7 @@ module HT2
       if backpressure > 0.9
         # Wait for capacity with a reasonable timeout
         unless @connection.backpressure_manager.wait_for_capacity(500.milliseconds)
+          record_error(:flow_control)
           raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR, "Stream backpressure timeout")
         end
       end
@@ -122,11 +157,27 @@ module HT2
 
     private def get_adaptive_chunk_size(default_size : Int32) : Int32
       if buffer_mgr = @connection.adaptive_buffer_manager
-        # Safely handle window sizes, clamping to valid Int32 range
-        send_window = @send_window_size.clamp(0_i64, Int32::MAX.to_i64).to_i32
-        conn_window = @connection.window_size.clamp(0_i64, Int32::MAX.to_i64).to_i32
+        # Safely handle window sizes, converting to Int32 range
+        # Don't clamp to 0 - we need actual values for proper calculations
+        send_window = if @send_window_size > Int32::MAX
+                        Int32::MAX
+                      elsif @send_window_size < Int32::MIN
+                        Int32::MIN
+                      else
+                        @send_window_size.to_i32
+                      end
+
+        conn_window = if @connection.window_size > Int32::MAX
+                        Int32::MAX
+                      elsif @connection.window_size < Int32::MIN
+                        Int32::MIN
+                      else
+                        @connection.window_size.to_i32
+                      end
+
         available_window = Math.min(send_window, conn_window)
-        buffer_mgr.recommended_chunk_size(available_window)
+        # Only clamp to 0 for the buffer manager
+        buffer_mgr.recommended_chunk_size(Math.max(0, available_window))
       else
         default_size
       end
@@ -134,38 +185,88 @@ module HT2
 
     private def send_chunks(chunk_size : Int32, data : Bytes, end_stream : Bool) : Nil
       offset = 0
-      Log.debug { "Stream.send_chunks: Starting to send #{data.size} bytes in chunks of #{chunk_size}" }
 
       while offset < data.size
         available = calculate_available_size(chunk_size)
 
         if available <= 0
-          Log.debug { "Stream.send_chunks: No window available, waiting..." }
           wait_for_window
           next
         end
 
         offset = send_chunk(available, data, end_stream, offset)
       end
-
-      Log.debug { "Stream.send_chunks: Finished sending all chunks" }
     end
 
     private def calculate_available_size(chunk_size : Int32) : Int32
-      # Safely handle window sizes, clamping to valid Int32 range
-      send_window = @send_window_size.clamp(0_i64, Int32::MAX.to_i64).to_i32
-      conn_window = @connection.window_size.clamp(0_i64, Int32::MAX.to_i64).to_i32
+      # Don't clamp to 0 - we need to track negative windows per RFC 7540
+      send_window = @send_window_size
+      # Connection window is Int64, need to handle overflow carefully
+      conn_window = if @connection.window_size > Int32::MAX
+                      Int32::MAX
+                    elsif @connection.window_size < Int32::MIN
+                      Int32::MIN
+                    else
+                      @connection.window_size.to_i32
+                    end
 
       Math.min(
         Math.min(chunk_size, send_window),
         conn_window
-      )
+      ).to_i32
     end
 
     private def wait_for_window : Nil
-      # Yield to allow other fibers (including the read loop) to run
-      Fiber.yield
-      sleep 1.millisecond
+      # Use channel-based waiting with timeout
+      timeout_channel = Channel(Nil).new
+
+      spawn do
+        sleep 5.seconds
+        select
+        when timeout_channel.send(nil)
+          # Timeout occurred
+        else
+          # Already resolved
+        end
+      end
+
+      loop do
+        select
+        when @window_update_channel.receive
+          # Window updated, check if we can proceed
+          if calculate_available_size(1) > 0
+            return
+          else
+            # Continue waiting for more updates
+          end
+        when timeout_channel.receive
+          raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR,
+            "Timed out waiting for flow control window")
+        end
+      end
+    end
+
+    private def wait_for_window_polling : Nil
+      # Fallback polling method
+      wait_time = 1.millisecond
+      max_wait = 100.milliseconds
+      total_waited = 0.milliseconds
+      max_total_wait = 1.second
+
+      while total_waited < max_total_wait
+        Fiber.yield
+        sleep wait_time
+
+        if calculate_available_size(1) > 0
+          return
+        end
+
+        total_waited += wait_time
+        wait_time = Math.min(wait_time * 2, max_wait)
+      end
+
+      raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR,
+        "Timed out waiting for flow control window")
     end
 
     private def send_chunk(available : Int32, data : Bytes, end_stream : Bool, offset : Int32) : Int32
@@ -173,10 +274,6 @@ module HT2
       chunk = data[offset...chunk_end]
       is_last_chunk = chunk_end >= data.size
 
-      Log.debug do
-        "Stream.send_chunk: Sending chunk from #{offset} to #{chunk_end} " \
-        "(#{chunk.size} bytes), last_chunk=#{is_last_chunk}"
-      end
       send_data(chunk, end_stream && is_last_chunk)
       chunk_end
     end
@@ -195,6 +292,16 @@ module HT2
     def send_rst_stream(error_code : ErrorCode) : Nil
       if state == StreamState::CLOSED
         return
+      end
+
+      # Record the error that caused RST_STREAM
+      case error_code
+      when ErrorCode::PROTOCOL_ERROR
+        record_error(:protocol)
+      when ErrorCode::FLOW_CONTROL_ERROR
+        record_error(:flow_control)
+      else
+        record_error(:general)
       end
 
       previous_state = state
@@ -236,13 +343,59 @@ module HT2
     def receive_headers(headers : Array(Tuple(String, String)), end_stream : Bool, priority : Bool = false) : Nil
       @state_machine.validate_receive_headers
 
+      # Check if we already received headers
+      if @request_headers
+        # Second HEADERS frame - could be trailers or a protocol error
+        # Trailers are only allowed if:
+        # 1. The stream is in a state that allows receiving data/trailers (OPEN, HALF_CLOSED_LOCAL)
+        # 2. We haven't received END_STREAM yet (trailers must have END_STREAM set)
+        # 3. The current HEADERS frame has END_STREAM set
+        if (state == StreamState::OPEN || state == StreamState::HALF_CLOSED_LOCAL) && !@end_stream_received && end_stream
+          # This is trailers
+          @request_trailers = headers
+          @end_stream_received = true
+          update_state_after_trailers_received
+          return
+        else
+          # Second HEADERS frame without END_STREAM or in wrong state is a protocol error
+          record_error(:protocol)
+          raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Already received headers for this stream")
+        end
+      end
+
       @request_headers = headers
+
+      # Set up content-length validation
+      begin
+        @content_length_validator.set_expected_length(headers)
+      rescue ex : StreamError
+        # Re-raise with correct stream ID
+        raise StreamError.new(@id, ex.code, ex.message)
+      end
+
+      # If end_stream is set with content-length, validate it's 0
+      if end_stream && @content_length_validator.has_content_length?
+        if @content_length_validator.expected_length != 0
+          record_error(:protocol)
+          raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR,
+            "END_STREAM set but content-length is #{@content_length_validator.expected_length}")
+        end
+      end
+
       @end_stream_received = true if end_stream
       update_state_after_headers_received(end_stream)
     end
 
     def receive_data(data : Bytes, end_stream : Bool) : Nil
       @state_machine.validate_receive_data
+
+      # Validate content-length
+      begin
+        @content_length_validator.add_data(data)
+      rescue ex : StreamError
+        # Re-raise with correct stream ID
+        raise StreamError.new(@id, ex.code, ex.message)
+      end
 
       # Update receive window
       @recv_window_size -= data.size
@@ -284,13 +437,24 @@ module HT2
         end
       end
 
-      @end_stream_received = true if end_stream
+      if end_stream
+        # Validate content-length on stream end
+        begin
+          @content_length_validator.validate_end_of_stream
+        rescue ex : StreamError
+          # Re-raise with correct stream ID
+          raise StreamError.new(@id, ex.code, ex.message)
+        end
+        @end_stream_received = true
+      end
+
       update_state_after_data_received(end_stream)
     end
 
     def update_send_window(increment : Int32) : Nil
       # Check for zero increment
       if increment == 0
+        record_error(:protocol)
         raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Window increment cannot be zero")
       end
 
@@ -298,6 +462,7 @@ module HT2
       new_window = Security.checked_add(@send_window_size, increment.to_i64)
 
       if new_window > Security::MAX_WINDOW_SIZE
+        record_error(:flow_control)
         raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR, "Window size overflow")
       end
 
@@ -309,6 +474,9 @@ module HT2
         @id,
         "Send window updated by #{increment} to #{new_window}"
       )
+
+      # Notify any waiting fibers
+      notify_window_update
     end
 
     def update_recv_window(increment : Int32) : Nil
@@ -317,11 +485,13 @@ module HT2
 
       # In IDLE state, window updates are not allowed
       if state == StreamState::IDLE
+        record_error(:protocol)
         raise ProtocolError.new("Cannot update window in IDLE state")
       end
 
       # Check for zero increment
       if increment == 0
+        record_error(:protocol)
         raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Window increment cannot be zero")
       end
 
@@ -329,6 +499,7 @@ module HT2
       new_window = Security.checked_add(@recv_window_size, increment.to_i64)
 
       if new_window > Security::MAX_WINDOW_SIZE
+        record_error(:flow_control)
         raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR, "Window size overflow")
       end
 
@@ -339,6 +510,16 @@ module HT2
       # RST_STREAM is allowed in CLOSED state - just ignore it
       if state == StreamState::CLOSED
         return
+      end
+
+      # Record the error that caused RST_STREAM from peer
+      case error_code
+      when ErrorCode::PROTOCOL_ERROR
+        record_error(:protocol)
+      when ErrorCode::FLOW_CONTROL_ERROR
+        record_error(:flow_control)
+      else
+        record_error(:general)
       end
 
       previous_state = state
@@ -377,6 +558,12 @@ module HT2
     end
 
     def receive_priority(priority : PriorityData) : Nil
+      # Check for self-dependency
+      if priority.stream_dependency == @id
+        record_error(:protocol)
+        raise StreamError.new(@id, ErrorCode::PROTOCOL_ERROR, "Stream cannot depend on itself")
+      end
+
       # PRIORITY frames are allowed in any state, including CLOSED
       # for a short period after stream closure
       if state == StreamState::CLOSED && @closed_at
@@ -410,6 +597,7 @@ module HT2
       # Update closed timestamp if needed
       if new_state == StreamState::CLOSED
         @closed_at = Time.utc
+        @connection.mark_stream_closed(@id)
       end
 
       # Record state change if occurred
@@ -450,6 +638,7 @@ module HT2
       # Update closed timestamp if needed
       if new_state == StreamState::CLOSED
         @closed_at = Time.utc
+        @connection.mark_stream_closed(@id)
       end
 
       # Record state change if occurred
@@ -483,6 +672,7 @@ module HT2
       # Update closed timestamp if needed
       if new_state == StreamState::CLOSED
         @closed_at = Time.utc
+        @connection.mark_stream_closed(@id)
       end
 
       # Record state change if occurred
@@ -532,6 +722,7 @@ module HT2
       # Update closed timestamp if needed
       if new_state == StreamState::CLOSED
         @closed_at = Time.utc
+        @connection.mark_stream_closed(@id)
       end
 
       # Record state change if occurred
@@ -561,6 +752,90 @@ module HT2
 
     def closed? : Bool
       state == StreamState::CLOSED
+    end
+
+    # Error tracking methods for state isolation
+    def record_error(error_type : Symbol = :general) : Nil
+      @error_count += 1
+      @last_error_time = Time.utc
+
+      case error_type
+      when :protocol
+        @protocol_errors += 1
+      when :flow_control
+        @flow_control_errors += 1
+      end
+    end
+
+    def error_rate : Float64
+      return 0.0 if @error_count == 0
+      age = Time.utc - @created_at
+      return 0.0 if age.total_seconds <= 0
+      @error_count.to_f / age.total_seconds
+    end
+
+    def recent_errors?(window : Time::Span = 10.seconds) : Bool
+      return false unless last_error = @last_error_time
+      Time.utc - last_error < window
+    end
+
+    def idle_time : Time::Span
+      if closed_at = @closed_at
+        closed_at - @created_at
+      else
+        Time.utc - @created_at
+      end
+    end
+
+    def should_cleanup? : Bool
+      # Clean up if stream has too many errors
+      return true if @error_count > 20
+
+      # Clean up if stream has been idle too long
+      return true if idle_time > 5.minutes
+
+      # Clean up if stream is closed and has been closed for a while
+      if closed? && (closed_at = @closed_at)
+        return Time.utc - closed_at > 30.seconds
+      end
+
+      false
+    end
+
+    private def update_state_after_trailers_received
+      # Trailers are always sent with END_STREAM, so transition to closed
+      previous_state = state
+
+      # Transition state machine - trailers imply end of stream
+      event = StreamStateMachine.headers_event(true, false) # end_stream = true
+      new_state, _ = @state_machine.transition(event)
+
+      # Update closed timestamp
+      if new_state == StreamState::CLOSED
+        @closed_at = Time.utc
+        @connection.mark_stream_closed(@id)
+      end
+
+      # Record state change
+      if previous_state != new_state
+        @connection.stream_lifecycle_tracer.record_event(
+          StreamLifecycleTracer::EventType::STATE_CHANGE,
+          @id,
+          "Trailers received",
+          previous_state,
+          new_state
+        )
+      end
+    end
+
+    # Notify waiting fibers that window has been updated
+    def notify_window_update : Nil
+      select
+      when @window_update_channel.send(nil)
+        # Successfully notified
+      else
+        # No fiber waiting, which is fine
+      end
     end
   end
 end

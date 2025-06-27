@@ -110,6 +110,12 @@ module HT2
     getter? goaway_sent : Bool = false
     getter? goaway_received : Bool = false
 
+    # Recent error tracking for circuit breaker
+    @recent_stream_errors : UInt32 = 0_u32
+    @recent_connection_errors : UInt32 = 0_u32
+    @stream_error_window_start : Time
+    @connection_error_window_start : Time
+
     def initialize
       @started_at = Time.utc
       @last_activity_at = @started_at
@@ -118,6 +124,8 @@ module HT2
       @errors_sent = ErrorCounters.new
       @errors_received = ErrorCounters.new
       @mutex = Mutex.new
+      @stream_error_window_start = Time.utc
+      @connection_error_window_start = Time.utc
     end
 
     # Record a frame being sent
@@ -377,6 +385,54 @@ module HT2
             goaway_received: @goaway_received,
           },
         }
+      end
+    end
+
+    # Track stream errors with sliding window
+    def record_stream_error : Nil
+      @mutex.synchronize do
+        # Reset window if it's been more than 10 seconds
+        if Time.utc - @stream_error_window_start > 10.seconds
+          @recent_stream_errors = 0
+          @stream_error_window_start = Time.utc
+        end
+        @recent_stream_errors += 1
+      end
+    end
+
+    # Get recent stream errors count
+    def recent_stream_errors : UInt32
+      @mutex.synchronize do
+        # Reset if window is old
+        if Time.utc - @stream_error_window_start > 10.seconds
+          @recent_stream_errors = 0
+          @stream_error_window_start = Time.utc
+        end
+        @recent_stream_errors
+      end
+    end
+
+    # Track connection errors with sliding window
+    def record_connection_error : Nil
+      @mutex.synchronize do
+        # Reset window if it's been more than 5 seconds
+        if Time.utc - @connection_error_window_start > 5.seconds
+          @recent_connection_errors = 0
+          @connection_error_window_start = Time.utc
+        end
+        @recent_connection_errors += 1
+      end
+    end
+
+    # Get recent connection errors count
+    def recent_connection_errors : UInt32
+      @mutex.synchronize do
+        # Reset if window is old
+        if Time.utc - @connection_error_window_start > 5.seconds
+          @recent_connection_errors = 0
+          @connection_error_window_start = Time.utc
+        end
+        @recent_connection_errors
       end
     end
   end

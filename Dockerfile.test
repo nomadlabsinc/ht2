@@ -21,7 +21,16 @@ RUN apk add --no-cache \
 RUN pip3 install --break-system-packages "httpx[http2]" h2
 
 # Install h2spec
-RUN curl -L https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz -o h2spec.tar.gz && \
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then \
+      H2SPEC_ARCH="amd64"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+      H2SPEC_ARCH="arm64"; \
+    else \
+      echo "Unsupported architecture: $ARCH"; \
+      exit 1; \
+    fi && \
+    curl -L https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_${H2SPEC_ARCH}.tar.gz -o h2spec.tar.gz && \
     tar -xzf h2spec.tar.gz && \
     mv h2spec /usr/local/bin/ && \
     chmod +x /usr/local/bin/h2spec && \
@@ -46,6 +55,11 @@ RUN mkdir -p /certs && \
 
 # Create scripts directory
 RUN mkdir -p /app/scripts
+
+# Create Crystal cache directory with proper permissions
+RUN mkdir -p /tmp/.crystal && \
+    chmod -R 777 /tmp/.crystal && \
+    chmod 1777 /tmp
 
 # Set environment for faster builds
 ENV CRYSTAL_CACHE_DIR=/tmp/.crystal

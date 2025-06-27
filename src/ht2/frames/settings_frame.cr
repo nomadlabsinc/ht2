@@ -1,11 +1,16 @@
 module HT2
   class SettingsFrame < Frame
     alias Settings = Hash(SettingsParameter, UInt32)
+    alias SettingsPair = Tuple(SettingsParameter, UInt32)
+    alias SettingsList = Array(SettingsPair)
 
     getter settings : Settings
+    getter settings_list : SettingsList
 
-    def initialize(@flags : FrameFlags = FrameFlags::None, @settings : Settings = Settings.new)
+    def initialize(@flags : FrameFlags = FrameFlags::None, @settings : Settings = Settings.new, settings_list : SettingsList? = nil)
       super(0_u32, @flags) # SETTINGS always on stream 0
+      # If settings_list wasn't provided, build it from settings hash
+      @settings_list = settings_list || @settings.map { |k, v| {k, v} }
     end
 
     def frame_type : FrameType
@@ -13,10 +18,10 @@ module HT2
     end
 
     def payload : Bytes
-      bytes = Bytes.new(@settings.size * 6)
+      bytes = Bytes.new(@settings_list.size * 6)
       offset = 0
 
-      @settings.each do |param, value|
+      @settings_list.each do |param, value|
         # Parameter ID (16 bits)
         bytes[offset] = ((param.value >> 8) & 0xFF).to_u8
         bytes[offset + 1] = (param.value & 0xFF).to_u8
@@ -47,6 +52,7 @@ module HT2
       end
 
       settings = Settings.new
+      settings_list = SettingsList.new
 
       (0...payload.size).step(6) do |i|
         param_id = (payload[i].to_u16 << 8) | payload[i + 1].to_u16
@@ -74,13 +80,16 @@ module HT2
             end
           end
 
+          # Add to list to preserve order and allow duplicates
+          settings_list << {param, value}
+          # Update hash with latest value
           settings[param] = value
         rescue ArgumentError
           # Unknown setting - ignore as per spec
         end
       end
 
-      SettingsFrame.new(flags, settings)
+      SettingsFrame.new(flags, settings, settings_list)
     end
 
     def self.default_settings : SettingsFrame

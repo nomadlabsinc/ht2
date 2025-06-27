@@ -59,6 +59,11 @@ class MockConnection < HT2::Connection
     @metrics = HT2::ConnectionMetrics.new
     @performance_metrics = HT2::PerformanceMetrics.new
     @stream_lifecycle_tracer = HT2::StreamLifecycleTracer.new(false)
+    @closed_streams = Set(UInt32).new
+    @closed_stream_limit = 100_u32
+    @request_count = 0_u32
+    @max_requests_per_connection = 1000_u32
+    @connection_start_time = Time.monotonic
   end
 
   def send_frame(frame : HT2::Frame) : Nil

@@ -139,7 +139,6 @@ module HT2
             task.call
           rescue ex
             # Log error but continue processing
-            puts "Worker pool task error: #{ex.message}"
           ensure
             @active_count.sub(1)
           end

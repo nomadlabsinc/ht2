@@ -60,15 +60,7 @@ module HT2
     ) : Nil
       return unless @@enabled && @@config.frame_logging?
 
-      Log.debug do
-        String.build do |str|
-          str << "[#{connection_id}] "
-          str << "#{direction} "
-          str << "#{frame.class.name.split("::").last} "
-          str << "stream=#{stream_id || frame.stream_id} "
-          str << format_frame_details(frame)
-        end
-      end
+      # Frame logging disabled
     end
 
     # Log raw frame bytes

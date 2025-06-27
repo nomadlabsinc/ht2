@@ -7,11 +7,10 @@ FROM robnomad/crystal:dev-hoard as builder
 WORKDIR /app
 
 # Install dependencies
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     curl \
     git \
-    make \
-    && rm -rf /var/lib/apt/lists/*
+    make
 
 # Copy shard files first for better caching
 COPY shard.yml shard.lock ./
@@ -32,25 +31,28 @@ FROM robnomad/crystal:dev-hoard as test
 WORKDIR /app
 
 # Install runtime dependencies and test tools
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     curl \
     git \
     make \
     python3 \
-    python3-pip \
+    py3-pip \
     nodejs \
-    npm \
-    && rm -rf /var/lib/apt/lists/*
+    npm
 
 # Install Python httpx library with HTTP/2 support
 RUN pip3 install --break-system-packages "httpx[http2]"
 
-# Install h2spec - Download pre-built binary for HTTP/2 conformance testing
-RUN curl -L https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz -o h2spec.tar.gz && \
-    tar -xzf h2spec.tar.gz && \
-    mv h2spec /usr/local/bin/ && \
+# Install Go for building h2spec
+RUN apk add --no-cache go
+
+# Build h2spec from source for ARM64 compatibility
+RUN git clone https://github.com/summerwind/h2spec.git /tmp/h2spec && \
+    cd /tmp/h2spec && \
+    git checkout v2.6.0 && \
+    go build -o /usr/local/bin/h2spec cmd/h2spec/h2spec.go && \
     chmod +x /usr/local/bin/h2spec && \
-    rm h2spec.tar.gz
+    rm -rf /tmp/h2spec
 
 # Verify installations
 RUN python3 -c "import httpx; print('httpx installed')" && \
