@@ -5,7 +5,7 @@ require "log"
 
 Log.setup(:debug)
 
-# Create a simple test server
+# Create a simple test server with h2c support (no TLS)
 server = HT2::Server.new(
   host: "localhost",
   port: 8443,
@@ -16,11 +16,13 @@ server = HT2::Server.new(
     response.status = 200
     response.headers["content-type"] = "text/plain"
     
-    # Send data in small chunks to test flow control
-    test_data = "Hello, HTTP/2! This is test data for flow control testing."
+    # Send enough data for h2spec to measure (at least 100 bytes)
+    # h2spec expects servers to send a reasonable amount of data
+    test_data = "x" * 100  # 100 bytes of 'x' characters
     response.write(test_data.to_slice)
     response.close
-  end
+  end,
+  enable_h2c: true  # Enable h2c for non-TLS HTTP/2
 )
 
 puts "Starting test server on localhost:8443..."
