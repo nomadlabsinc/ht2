@@ -2,8 +2,16 @@
 
 ## Summary
 
-        × 1: Sends multiple values of SETTINGS_INITIAL_WINDOW_SIZE
-        Error: Unable to get server data length
+- Total tests: 146
+- Passed: 145
+- Failed: 1
+- Success rate: 99%
 
-Finished in 11.3207 seconds
-146 tests, 145 passed, 0 skipped, 1 failed
+## Failed Tests
+
+      6.9.2. Initial Flow-Control Window Size
+          1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame        using source address [::1]:59091
+        × 1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame
+      6.9.2. Initial Flow-Control Window Size
+        using source address [::1]:59091
+        × 1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame
