@@ -10,8 +10,8 @@
 ## Failed Tests
 
       6.9.2. Initial Flow-Control Window Size
-          1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame        using source address [::1]:59091
+          1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame        using source address [::1]:51170
         × 1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame
       6.9.2. Initial Flow-Control Window Size
-        using source address [::1]:59091
+        using source address [::1]:51170
         × 1: Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame

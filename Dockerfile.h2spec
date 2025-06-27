@@ -53,8 +53,9 @@ RUN mkdir -p /certs && \
     -days 365 -nodes -subj "/CN=client" && \
     chmod 644 /certs/*
 
-# Build the basic server
-RUN crystal build examples/basic_server.cr -o basic_server --release
+# Build the servers
+RUN crystal build examples/basic_server.cr -o basic_server --release && \
+    crystal build examples/h2spec_server.cr -o h2spec_server --release
 
 # Expose the server port
 EXPOSE 8443
@@ -64,8 +65,8 @@ RUN cat > /app/run-h2spec-tests.sh << 'EOF'
 #!/bin/bash
 set -e
 
-echo "Starting ht2 server..."
-/app/basic_server --port 8443 &
+echo "Starting h2spec-optimized server..."
+/app/h2spec_server --port 8443 &
 SERVER_PID=$!
 
 # Wait for server to start

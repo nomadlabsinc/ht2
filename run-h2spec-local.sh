@@ -17,7 +17,7 @@ docker build -f Dockerfile.h2spec -t ht2-h2spec . --quiet
 docker rm -f ht2-server-h2spec 2>/dev/null || true
 
 echo "🐳 Starting HT2 server in Docker..."
-docker run -d --name ht2-server-h2spec -p 8443:8443 ht2-h2spec ./basic_server --host 0.0.0.0
+docker run -d --name ht2-server-h2spec -p 8443:8443 ht2-h2spec ./h2spec_server --host 0.0.0.0
 
 # Wait for server to be ready
 echo "⏳ Waiting for server to start..."

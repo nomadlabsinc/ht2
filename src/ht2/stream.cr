@@ -207,19 +207,22 @@ module HT2
         end
       end
 
-      select
-      when @window_update_channel.receive
-        # Window updated, check if we can proceed
-        if calculate_available_size(1) > 0
-          return
-        else
-          # Window still not available, fall back to polling
-          wait_for_window_polling
+      loop do
+        select
+        when @window_update_channel.receive
+          # Window updated, check if we can proceed
+          if calculate_available_size(1) > 0
+            Log.debug { "Stream #{@id}: Window available after update, proceeding" }
+            return
+          else
+            Log.debug { "Stream #{@id}: Window still not available after update, continuing to wait" }
+            # Continue waiting for more updates
+          end
+        when timeout_channel.receive
+          Log.warn { "Stream #{@id}: Timed out waiting for window update" }
+          raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR,
+            "Timed out waiting for flow control window")
         end
-      when timeout_channel.receive
-        Log.warn { "Stream #{@id}: Timed out waiting for window update" }
-        raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR,
-          "Timed out waiting for flow control window")
       end
     end
 

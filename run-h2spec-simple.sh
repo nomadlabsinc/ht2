@@ -9,10 +9,11 @@ docker rm -f ht2-server ht2-h2spec 2>/dev/null || true
 docker network create h2spec-net 2>/dev/null || true
 
 # Start server
-echo "Starting server..."
+echo "Starting h2spec-optimized server..."
 docker run -d --name ht2-server --network h2spec-net \
     -e HT2_LOG_LEVEL=INFO \
-    ht2-h2spec ./basic_server --host 0.0.0.0
+    -e LOG_LEVEL=INFO \
+    ht2-h2spec ./h2spec_server --host 0.0.0.0
 
 # Wait for server
 sleep 2
