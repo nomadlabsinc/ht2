@@ -130,11 +130,27 @@ module HT2
 
     private def get_adaptive_chunk_size(default_size : Int32) : Int32
       if buffer_mgr = @connection.adaptive_buffer_manager
-        # Safely handle window sizes, clamping to valid Int32 range
-        send_window = @send_window_size.clamp(0_i64, Int32::MAX.to_i64).to_i32
-        conn_window = @connection.window_size.clamp(0_i64, Int32::MAX.to_i64).to_i32
+        # Safely handle window sizes, converting to Int32 range
+        # Don't clamp to 0 - we need actual values for proper calculations
+        send_window = if @send_window_size > Int32::MAX
+                        Int32::MAX
+                      elsif @send_window_size < Int32::MIN
+                        Int32::MIN
+                      else
+                        @send_window_size.to_i32
+                      end
+        
+        conn_window = if @connection.window_size > Int32::MAX
+                        Int32::MAX
+                      elsif @connection.window_size < Int32::MIN
+                        Int32::MIN
+                      else
+                        @connection.window_size.to_i32
+                      end
+        
         available_window = Math.min(send_window, conn_window)
-        buffer_mgr.recommended_chunk_size(available_window)
+        # Only clamp to 0 for the buffer manager
+        buffer_mgr.recommended_chunk_size(Math.max(0, available_window))
       else
         default_size
       end

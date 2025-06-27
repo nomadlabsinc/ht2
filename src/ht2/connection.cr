@@ -1014,7 +1014,7 @@ module HT2
 
         # Validate and apply remote settings
         begin
-          apply_remote_settings(frame.settings)
+          apply_remote_settings_frame(frame)
           # Send ACK only if all settings were successfully applied
           Log.debug { "Sending SETTINGS ACK" }
           send_frame(SettingsFrame.new(FrameFlags::ACK))
@@ -1151,7 +1151,23 @@ module HT2
     end
 
     def apply_remote_settings(settings : SettingsFrame::Settings) : Nil
+      # This method is kept for compatibility but processes settings from hash
       settings.each do |param, value|
+        Log.debug { "Applying remote setting: #{param} = #{value}" }
+        validate_setting(param, value)
+
+        # Update remote_settings before applying so that window calculations use correct old value
+        old_value = @remote_settings[param]?
+        @remote_settings[param] = value
+
+        apply_single_setting(param, value)
+        @applied_settings[param] = value
+      end
+    end
+
+    def apply_remote_settings_frame(frame : SettingsFrame) : Nil
+      # Process settings in order from the list to handle duplicates correctly
+      frame.settings_list.each do |param, value|
         Log.debug { "Applying remote setting: #{param} = #{value}" }
         validate_setting(param, value)
 
@@ -1183,10 +1199,16 @@ module HT2
     end
 
     private def update_stream_windows(new_initial_window : UInt32) : Nil
-      old_value = @remote_settings[SettingsParameter::INITIAL_WINDOW_SIZE]? || DEFAULT_INITIAL_WINDOW_SIZE
+      # Get the previously applied INITIAL_WINDOW_SIZE value
+      # Important: Use @applied_settings which tracks what was actually applied, not @remote_settings
+      # which may have already been updated
+      old_value = @applied_settings[SettingsParameter::INITIAL_WINDOW_SIZE]? || DEFAULT_INITIAL_WINDOW_SIZE
       diff = new_initial_window.to_i64 - old_value.to_i64
 
+      Log.debug { "Updating stream windows: old=#{old_value}, new=#{new_initial_window}, diff=#{diff}" }
+
       @streams.each_value do |stream|
+        old_window = stream.send_window_size
         new_window = stream.send_window_size.to_i64 + diff
         if new_window > Security::MAX_WINDOW_SIZE
           raise ConnectionError.new(ErrorCode::FLOW_CONTROL_ERROR, "Window size overflow on stream #{stream.id}")
@@ -1194,6 +1216,8 @@ module HT2
         # Allow negative windows - RFC 7540 Section 6.9.2
         # "A sender MUST track the negative flow-control window"
         stream.send_window_size = new_window
+
+        Log.debug { "Stream #{stream.id} window updated: #{old_window} -> #{new_window}" }
 
         # Notify the stream that its window has been updated
         stream.notify_window_update if stream.responds_to?(:notify_window_update)

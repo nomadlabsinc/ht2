@@ -2,8 +2,8 @@
 
 ## Summary
 
-             Expected: DATA Frame (length:1, flags:0x00, stream_id:1)
-               Actual: DATA Frame (length:2, flags:0x00, stream_id:1)
+        × 1: Sends multiple values of SETTINGS_INITIAL_WINDOW_SIZE
+        Error: Unable to get server data length
 
-Finished in 11.8148 seconds
-146 tests, 143 passed, 0 skipped, 3 failed
+Finished in 11.2308 seconds
+146 tests, 145 passed, 0 skipped, 1 failed
