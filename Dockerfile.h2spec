@@ -61,36 +61,36 @@ RUN crystal build examples/basic_server.cr -o basic_server --release && \
 EXPOSE 8443
 
 # Create a script to run tests
-RUN cat > /app/run-h2spec-tests.sh << 'EOF'
-#!/bin/bash
-set -e
-
-echo "Starting h2spec-optimized server..."
-/app/h2spec_server --port 8443 &
-SERVER_PID=$!
-
-# Wait for server to start
-echo "Waiting for server to be ready..."
-for i in {1..30}; do
-    if curl -k https://localhost:8443/ >/dev/null 2>&1; then
-        echo "Server is ready!"
-        break
-    fi
-    if [ $i -eq 30 ]; then
-        echo "Server failed to start"
-        exit 1
-    fi
-    sleep 1
-done
-
-echo "Running h2spec tests..."
-h2spec -h localhost -p 8443 -t -j /app/h2spec_results.json | tee /app/h2spec_results.txt
-
-# Kill the server
-kill $SERVER_PID
-
-echo "Tests completed. Results saved to h2spec_results.txt and h2spec_results.json"
-EOF
+RUN printf '%s\n' \
+    '#!/bin/bash' \
+    'set -e' \
+    '' \
+    'echo "Starting h2spec-optimized server..."' \
+    '/app/h2spec_server --port 8443 &' \
+    'SERVER_PID=$!' \
+    '' \
+    '# Wait for server to start' \
+    'echo "Waiting for server to be ready..."' \
+    'for i in {1..30}; do' \
+    '    if curl -k https://localhost:8443/ >/dev/null 2>&1; then' \
+    '        echo "Server is ready!"' \
+    '        break' \
+    '    fi' \
+    '    if [ $i -eq 30 ]; then' \
+    '        echo "Server failed to start"' \
+    '        exit 1' \
+    '    fi' \
+    '    sleep 1' \
+    'done' \
+    '' \
+    'echo "Running h2spec tests..."' \
+    'h2spec -h localhost -p 8443 -t -j /app/h2spec_results.json | tee /app/h2spec_results.txt' \
+    '' \
+    '# Kill the server' \
+    'kill $SERVER_PID' \
+    '' \
+    'echo "Tests completed. Results saved to h2spec_results.txt and h2spec_results.json"' \
+    > /app/run-h2spec-tests.sh
 
 RUN chmod +x /app/run-h2spec-tests.sh
 
