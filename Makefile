@@ -19,9 +19,9 @@ test: build-test-image
 		ht2-test:$(CRYSTAL_VERSION) \
 		/app/scripts/run-tests.sh all
 
-# Run tests in parallel using docker-compose
+# Run tests in parallel using docker compose
 test-parallel:
-	CRYSTAL_VERSION=$(CRYSTAL_VERSION) docker-compose -f docker-compose.test.yml up --abort-on-container-exit
+	CRYSTAL_VERSION=$(CRYSTAL_VERSION) docker compose -f docker compose.test.yml up --abort-on-container-exit
 
 # Run specific test suites
 test-unit: build-test-image
@@ -98,32 +98,37 @@ h2spec-build:
 h2spec: h2spec-build
 	@echo "Running H2spec compliance tests (split mode)..."
 	@mkdir -p h2spec-results
-	docker-compose -f docker-compose.h2spec.yml up --abort-on-container-exit h2spec-server h2spec-part1 h2spec-part2
+	docker compose -f docker-compose.h2spec.yml up --abort-on-container-exit h2spec-server h2spec-part1 h2spec-part2
+	@echo ""
+	@echo "=== H2spec Results Summary ==="
+	@if [ -f h2spec-results/part1_results.txt ] && [ -f h2spec-results/part2_results.txt ]; then \
+		PART1_SUMMARY=$$(tail -1 h2spec-results/part1_results.txt); \
+		PART2_SUMMARY=$$(tail -1 h2spec-results/part2_results.txt); \
+		echo "Part 1: $$PART1_SUMMARY"; \
+		echo "Part 2: $$PART2_SUMMARY"; \
+	else \
+		echo "Error: Result files not found"; \
+		exit 1; \
+	fi
 
 # Run H2spec Part 1 only (sections 3-5)
 h2spec-part1: h2spec-build
-	@echo "Running H2spec Part 1 (sections 3-5)..."
+	@echo "Running H2spec Part 1 tests..."
 	@mkdir -p h2spec-results
-	docker-compose -f docker-compose.h2spec.yml up --abort-on-container-exit h2spec-server h2spec-part1
+	docker compose -f docker-compose.h2spec.yml up --abort-on-container-exit h2spec-server h2spec-part1
 
-# Run H2spec Part 2 only (sections 6-8)
+# Run H2spec Part 2 only
 h2spec-part2: h2spec-build
-	@echo "Running H2spec Part 2 (sections 6-8)..."
+	@echo "Running H2spec Part 2 tests..."
 	@mkdir -p h2spec-results
-	docker-compose -f docker-compose.h2spec.yml up --abort-on-container-exit h2spec-server h2spec-part2
-
-# Run full H2spec test suite (may have probe failures)
-h2spec-full: h2spec-build
-	@echo "Running full H2spec test suite (may have probe failures)..."
-	@mkdir -p h2spec-results
-	docker-compose -f docker-compose.h2spec.yml up --abort-on-container-exit h2spec-server h2spec-full
+	docker compose -f docker-compose.h2spec.yml up --abort-on-container-exit h2spec-server h2spec-part2
 
 # Clean up H2spec containers and results
 h2spec-clean:
-	docker-compose -f docker-compose.h2spec.yml down -v
+	docker compose -f docker-compose.h2spec.yml down -v
 	rm -rf h2spec-results
 
 # Clean up
 clean: h2spec-clean
 	rm -rf bin lib .crystal .shards
-	docker-compose -f docker-compose.test.yml down -v
+	docker compose -f docker-compose.test.yml down -v
