@@ -1154,8 +1154,12 @@ module HT2
       settings.each do |param, value|
         Log.debug { "Applying remote setting: #{param} = #{value}" }
         validate_setting(param, value)
-        apply_single_setting(param, value)
+
+        # Update remote_settings before applying so that window calculations use correct old value
+        old_value = @remote_settings[param]?
         @remote_settings[param] = value
+
+        apply_single_setting(param, value)
         @applied_settings[param] = value
       end
     end
@@ -1189,7 +1193,10 @@ module HT2
         end
         # Allow negative windows - RFC 7540 Section 6.9.2
         # "A sender MUST track the negative flow-control window"
-        stream.send_window_size = new_window.to_i32
+        stream.send_window_size = new_window
+
+        # Notify the stream that its window has been updated
+        stream.notify_window_update if stream.responds_to?(:notify_window_update)
       end
     end
 

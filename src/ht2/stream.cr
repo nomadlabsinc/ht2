@@ -50,6 +50,7 @@ module HT2
         AdaptiveFlowControl::Strategy::DYNAMIC
       )
       @content_length_validator = ContentLengthValidator.new
+      @window_update_channel = Channel(Nil).new(1)
     end
 
     def send_headers(headers : Array(Tuple(String, String)), end_stream : Bool = false) : Nil
@@ -177,18 +178,46 @@ module HT2
     end
 
     private def wait_for_window : Nil
-      # Wait for window update with exponential backoff
+      # Use channel-based waiting with timeout
+      timeout_channel = Channel(Nil).new
+
+      spawn do
+        sleep 5.seconds
+        select
+        when timeout_channel.send(nil)
+          # Timeout occurred
+        else
+          # Already resolved
+        end
+      end
+
+      select
+      when @window_update_channel.receive
+        # Window updated, check if we can proceed
+        if calculate_available_size(1) > 0
+          return
+        else
+          # Window still not available, fall back to polling
+          wait_for_window_polling
+        end
+      when timeout_channel.receive
+        Log.warn { "Stream #{@id}: Timed out waiting for window update" }
+        raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR,
+          "Timed out waiting for flow control window")
+      end
+    end
+
+    private def wait_for_window_polling : Nil
+      # Fallback polling method
       wait_time = 1.millisecond
       max_wait = 100.milliseconds
       total_waited = 0.milliseconds
-      max_total_wait = 5.seconds
+      max_total_wait = 1.second
 
       while total_waited < max_total_wait
-        # Yield to allow other fibers to run
         Fiber.yield
         sleep wait_time
 
-        # Check if window is now available
         if calculate_available_size(1) > 0
           return
         end
@@ -197,8 +226,6 @@ module HT2
         wait_time = Math.min(wait_time * 2, max_wait)
       end
 
-      # If we've waited too long, raise an error
-      Log.warn { "Stream #{@id}: Timed out waiting for window update after #{total_waited}" }
       raise StreamError.new(@id, ErrorCode::FLOW_CONTROL_ERROR,
         "Timed out waiting for flow control window")
     end
@@ -398,6 +425,9 @@ module HT2
         @id,
         "Send window updated by #{increment} to #{new_window}"
       )
+
+      # Notify any waiting fibers
+      notify_window_update
     end
 
     def update_recv_window(increment : Int32) : Nil
@@ -684,6 +714,16 @@ module HT2
           previous_state,
           new_state
         )
+      end
+    end
+
+    # Notify waiting fibers that window has been updated
+    def notify_window_update : Nil
+      select
+      when @window_update_channel.send(nil)
+        # Successfully notified
+      else
+        # No fiber waiting, which is fine
       end
     end
   end
