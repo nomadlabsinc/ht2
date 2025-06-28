@@ -6,7 +6,6 @@
 - [Installation](#installation)
 - [Basic Usage](#basic-usage)
 - [Server API](#server-api)
-- [Client API](#client-api)
 - [Request & Response](#request--response)
 - [Error Handling](#error-handling)
 - [Advanced Features](#advanced-features)
@@ -15,17 +14,17 @@
 
 ## Overview
 
-HT2 is a high-performance HTTP/2 implementation for Crystal, designed for building fast and secure web servers and clients.
+HT2 is a high-performance HTTP/2 server implementation for Crystal, designed for building fast and secure web servers.
 
 ### Key Features
 - Full HTTP/2 protocol support (RFC 9113)
 - Built-in security features (CVE-2023-44487 protection)
-- Connection pooling and reuse
 - HPACK header compression
 - Stream multiplexing
 - Server push support
 - Adaptive flow control
 - Zero-copy optimizations
+- H2C (HTTP/2 cleartext) support
 
 ## Installation
 
@@ -51,35 +50,18 @@ shards install
 require "ht2"
 
 # Create a server with a simple handler
-server = HT2::Server.new(handler: ->(request : HT2::Request, response : HT2::Response) {
+handler = ->(request : HT2::Request, response : HT2::Response) do
   response.headers["content-type"] = "text/plain"
   response.write("Hello, HTTP/2!".to_slice)
   response.close
-})
+end
 
-# Listen on port 8443 with TLS
-server.listen(
-  host: "0.0.0.0",
-  port: 8443,
-  reuse_port: true,
-  tls: HT2::Server.create_tls_context("cert.pem", "key.pem")
-)
-```
+# Create TLS context (required for HTTP/2)
+tls_context = HT2::Server.create_tls_context("cert.pem", "key.pem")
 
-### Simple HTTP/2 Client
-
-```crystal
-require "ht2"
-
-# Create a client with connection pooling
-client = HT2::Client.new(
-  max_connections_per_host: 10,
-  idle_timeout: 60.seconds
-)
-
-# Make a GET request
-response = client.get("https://example.com/api/data")
-puts response.body
+# Create and start server
+server = HT2::Server.new("localhost", 8443, handler, tls_context)
+server.listen
 ```
 
 ## Server API
@@ -229,142 +211,6 @@ file_handler = ->(request : HT2::Request, response : HT2::Response) {
 }
 ```
 
-## Client API
-
-### HT2::Client
-
-HTTP/2 client with connection pooling and automatic protocol negotiation.
-
-#### Constructor
-
-```crystal
-def initialize(
-  max_connections_per_host : Int32 = 10,
-  idle_timeout : Time::Span = 60.seconds,
-  connect_timeout : Time::Span = 10.seconds,
-  dns_timeout : Time::Span = 5.seconds,
-  max_redirects : Int32 = 5
-)
-```
-
-**Parameters:**
-- `max_connections_per_host`: Maximum pooled connections per host (default: 10)
-- `idle_timeout`: Idle timeout for pooled connections (default: 60 seconds)
-- `connect_timeout`: Connection timeout (default: 10 seconds)
-- `dns_timeout`: DNS resolution timeout (default: 5 seconds)
-- `max_redirects`: Maximum redirect follows (default: 5)
-
-#### Methods
-
-##### `#get(url : String, headers : HTTP::Headers = HTTP::Headers.new) : ClientResponse`
-
-Perform a GET request.
-
-**Parameters:**
-- `url`: Target URL
-- `headers`: Optional request headers
-
-**Returns:** `HT2::ClientResponse`
-
-**Example:**
-```crystal
-response = client.get("https://api.example.com/users")
-puts response.status
-puts response.body
-```
-
-##### `#post(url : String, body : String | Bytes | IO | Nil = nil, headers : HTTP::Headers = HTTP::Headers.new) : ClientResponse`
-
-Perform a POST request.
-
-**Parameters:**
-- `url`: Target URL
-- `body`: Request body
-- `headers`: Optional request headers
-
-**Returns:** `HT2::ClientResponse`
-
-**Example:**
-```crystal
-# JSON POST
-response = client.post(
-  "https://api.example.com/users",
-  body: {"name" => "Alice"}.to_json,
-  headers: HTTP::Headers{"content-type" => "application/json"}
-)
-
-# Form POST
-response = client.post(
-  "https://example.com/form",
-  body: "name=Alice&email=alice@example.com",
-  headers: HTTP::Headers{"content-type" => "application/x-www-form-urlencoded"}
-)
-```
-
-##### `#put(url : String, body : String | Bytes | IO | Nil = nil, headers : HTTP::Headers = HTTP::Headers.new) : ClientResponse`
-
-Perform a PUT request.
-
-**Example:**
-```crystal
-response = client.put(
-  "https://api.example.com/users/123",
-  body: {"name" => "Alice Updated"}.to_json,
-  headers: HTTP::Headers{"content-type" => "application/json"}
-)
-```
-
-##### `#delete(url : String, headers : HTTP::Headers = HTTP::Headers.new) : ClientResponse`
-
-Perform a DELETE request.
-
-**Example:**
-```crystal
-response = client.delete("https://api.example.com/users/123")
-```
-
-##### `#head(url : String, headers : HTTP::Headers = HTTP::Headers.new) : ClientResponse`
-
-Perform a HEAD request.
-
-**Example:**
-```crystal
-response = client.head("https://example.com/large-file.zip")
-puts response.headers["content-length"]
-```
-
-##### `#warm_up(hosts : Array(String)) : Nil`
-
-Pre-establish connections to specified hosts.
-
-**Parameters:**
-- `hosts`: Array of host URLs to warm up
-
-**Example:**
-```crystal
-# Pre-connect to frequently used APIs
-client.warm_up([
-  "https://api.example.com",
-  "https://cdn.example.com"
-])
-```
-
-##### `#drain_connections : Nil`
-
-Gracefully close all pooled connections.
-
-```crystal
-client.drain_connections
-```
-
-##### `#close : Nil`
-
-Close the client and all connections.
-
-```crystal
-client.close
-```
-
 ## Request & Response
 
 ### HT2::Request
@@ -437,30 +283,6 @@ Close the response stream.
 response.close
 ```
 
-### HT2::ClientResponse
-
-Extended response for client requests.
-
-#### Additional Methods
-
-##### `#body : String`
-
-Get the full response body as a string.
-
-```crystal
-response = client.get("https://api.example.com/data")
-json = JSON.parse(response.body)
-```
-
-##### `#body_bytes : Bytes`
-
-Get the full response body as bytes.
-
-```crystal
-response = client.get("https://example.com/image.png")
-File.write("downloaded.png", response.body_bytes)
-```
-
 ## Error Handling
 
 ### Error Types
@@ -517,16 +339,18 @@ server = HT2::Server.new(handler: ->(request, response) {
   end
 })
 
-# Client error handling
+# Server error handling with connection issues
 begin
-  response = client.get("https://api.example.com/data")
-  process_response(response)
+  # In a server handler when issues occur
+  if connection_error_detected
+    raise HT2::Errors::ConnectionError.new("Connection lost")
+  end
 rescue ex : HT2::Errors::ConnectionError
   Log.error { "Connection failed: #{ex.message}" }
-  # Retry logic
+  # Handle connection cleanup
 rescue ex : HT2::Errors::GoawayError
   Log.warn { "Server sent GOAWAY: #{ex.message}" }
-  # Reconnect to different server
+  # Graceful shutdown
 rescue ex : HT2::Errors::SecurityError
   Log.error { "Security violation: #{ex.message}" }
   # Alert security team
@@ -804,17 +628,19 @@ handler = ->(request, response) {
 }
 ```
 
-### 4. Use Connection Pooling
+### 4. Manage Server Connections
 
 ```crystal
-# Reuse client instance across requests
-CLIENT = HT2::Client.new(
-  max_connections_per_host: 20,
-  idle_timeout: 5.minutes
-)
-
-# Warm up connections at startup
-CLIENT.warm_up(["https://api.example.com"])
+# Monitor active connections in server
+handler = ->(request, response) {
+  conn = request.connection
+  if conn.active_streams > 100
+    Log.warn { "High stream count: #{conn.active_streams}" }
+  end
+  
+  # Handle request...
+  response.close
+}
 ```
 
 ### 5. Monitor Performance
