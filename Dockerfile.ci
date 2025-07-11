@@ -1,23 +1,24 @@
-# CI-optimized Docker image using robnomad/crystal:dev-hoard
-FROM robnomad/crystal:dev-hoard
+# CI-optimized Docker image using robnomad/crystal:ubuntu-hoard
+FROM robnomad/crystal:ubuntu-hoard
 
 WORKDIR /app
 
 # Install required system packages for tests
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     openssl \
-    openssl-dev \
+    libssl-dev \
     python3 \
-    py3-pip \
+    python3-pip \
     nodejs \
     npm \
     curl \
     git \
-    make
+    make \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install Python packages with --break-system-packages flag
-RUN pip3 install --break-system-packages "httpx[http2]" h2
+# Install Python packages
+RUN pip3 install --no-cache-dir "httpx[http2]" h2 --break-system-packages
 
 # Install h2spec for HTTP/2 conformance testing (skip for now, needs glibc)
 # RUN curl -L https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz -o h2spec.tar.gz && \

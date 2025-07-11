@@ -2,15 +2,16 @@
 # This matches the CI environment exactly
 
 # Build stage
-FROM robnomad/crystal:dev-hoard as builder
+FROM robnomad/crystal:ubuntu-hoard as builder
 
 WORKDIR /app
 
 # Install dependencies
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
-    make
+    make \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy shard files first for better caching
 COPY shard.yml shard.lock ./
@@ -26,25 +27,25 @@ RUN crystal tool format --check
 RUN crystal build --release src/ht2.cr
 
 # Runtime stage for testing
-FROM robnomad/crystal:dev-hoard as test
+FROM robnomad/crystal:ubuntu-hoard as test
 
 WORKDIR /app
 
 # Install runtime dependencies and test tools
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     make \
     python3 \
-    py3-pip \
+    python3-pip \
     nodejs \
-    npm
+    npm \
+    golang-go \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Python httpx library with HTTP/2 support
-RUN pip3 install --break-system-packages "httpx[http2]"
+RUN pip3 install --no-cache-dir "httpx[http2]" --break-system-packages
 
-# Install Go for building h2spec
-RUN apk add --no-cache go
 
 # Build h2spec from source for ARM64 compatibility
 RUN git clone https://github.com/summerwind/h2spec.git /tmp/h2spec && \

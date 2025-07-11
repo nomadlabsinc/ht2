@@ -1,15 +1,16 @@
 # Multi-stage build for HT2 with Crystal 1.16
 
 # Build stage
-FROM robnomad/crystal:dev-hoard as builder
+FROM robnomad/crystal:ubuntu-hoard as builder
 
 WORKDIR /app
 
 # Install dependencies
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
-    make
+    make \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy shard files first for better caching
 COPY shard.yml shard.lock ./
@@ -25,22 +26,23 @@ RUN crystal tool format --check
 RUN crystal build --release src/ht2.cr
 
 # Runtime stage for testing
-FROM robnomad/crystal:dev-hoard as test
+FROM robnomad/crystal:ubuntu-hoard as test
 
 WORKDIR /app
 
 # Install runtime dependencies and test tools
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     make \
     python3 \
-    py3-pip \
+    python3-pip \
     nodejs \
-    npm
+    npm \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Python httpx library with HTTP/2 support
-RUN pip3 install --break-system-packages "httpx[http2]"
+RUN pip3 install --no-cache-dir "httpx[http2]" --break-system-packages
 
 # Install h2spec - Download pre-built binary for HTTP/2 conformance testing
 RUN curl -L https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz -o h2spec.tar.gz && \

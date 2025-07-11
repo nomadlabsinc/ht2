@@ -87,21 +87,99 @@ jobs:
         docker run --rm -v $PWD:/app ht2-test:ci \
           sh -c "cd /app && crystal run lib/ameba/src/cli.cr -- src spec --except Metrics/CyclomaticComplexity || true"
 
+  h2spec-compliance:
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    timeout-minutes: 10
+    name: HTTP/2 Protocol Compliance
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Build H2SPEC test image
+      run: docker build -f Dockerfile.h2spec -t ht2-h2spec .
+    
+    - name: Run HTTP/2 Protocol Compliance Tests
+      run: |
+        set -e
+        
+        echo "🚀 HTTP/2 Protocol Compliance (RFC 7540 & RFC 7541)"
+        echo "================================================="
+        
+        # Create Docker network
+        docker network create h2spec-net || true
+        
+        # Start server
+        docker run -d --name ht2-server --network h2spec-net \
+          -e HT2_LOG_LEVEL=ERROR \
+          ht2-h2spec ./h2spec_server --host 0.0.0.0
+        
+        # Wait for server to be ready
+        for i in {1..30}; do
+          if docker exec ht2-server curl -k https://localhost:8443/ >/dev/null 2>&1; then
+            echo "✅ Server ready!"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            docker logs ht2-server
+            exit 1
+          fi
+          sleep 1
+        done
+        
+        # Run complete H2SPEC test suite (146 tests)
+        docker run --rm --network h2spec-net \
+          summerwind/h2spec:2.6.0 \
+          -h ht2-server -p 8443 -t -k \
+          | tee h2spec_ci_results.txt
+        
+        EXIT_CODE=$?
+        
+        # Display results
+        if [ -f "h2spec_ci_results.txt" ]; then
+          SUMMARY=$(tail -1 h2spec_ci_results.txt)
+          PASSED=$(echo "$SUMMARY" | grep -o '[0-9]* passed' | grep -o '[0-9]*' || echo "0")
+          FAILED=$(echo "$SUMMARY" | grep -o '[0-9]* failed' | grep -o '[0-9]*' || echo "0")
+          
+          echo ""
+          echo "📊 Results: $PASSED passed, $FAILED failed"
+          
+          if [ "$FAILED" -eq 0 ]; then
+            echo "🎉 Perfect HTTP/2 compliance!"
+          else
+            echo "❌ HTTP/2 compliance issues detected"
+          fi
+        fi
+        
+        # Cleanup
+        docker rm -f ht2-server 2>/dev/null || true
+        docker network rm h2spec-net 2>/dev/null || true
+        
+        exit $EXIT_CODE
+    
+    - name: Upload H2SPEC results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: h2spec-compliance-results
+        path: h2spec_ci_results.txt
+
   check-status:
     runs-on: ubuntu-latest
-    needs: [test, test-specific, lint]
+    needs: [test, test-specific, lint, h2spec-compliance]
     if: always()
     steps:
     - name: Check job statuses
       run: |
         if [ "${{ needs.test.result }}" != "success" ] || \
            [ "${{ needs.test-specific.result }}" != "success" ] || \
-           [ "${{ needs.lint.result }}" != "success" ]; then
+           [ "${{ needs.lint.result }}" != "success" ] || \
+           [ "${{ needs.h2spec-compliance.result }}" != "success" ]; then
           echo "One or more jobs failed:"
           echo "test: ${{ needs.test.result }}"
           echo "test-specific: ${{ needs.test-specific.result }}"
           echo "lint: ${{ needs.lint.result }}"
+          echo "h2spec-compliance: ${{ needs.h2spec-compliance.result }}"
           exit 1
         else
-          echo "All jobs completed successfully"
+          echo "All jobs completed successfully including HTTP/2 compliance!"
         fi
