@@ -29,116 +29,31 @@ Despite these caveats, the library implements the full HTTP/2 specification and 
 
 ### Running H2SPEC Tests Locally
 
-Developers can run the complete H2SPEC compliance test suite using multiple approaches:
+Run the complete H2SPEC compliance test suite using two methods:
 
 ```bash
-# Method 1: Native h2spec binary (most transparent)
+# Native: Run h2spec binary directly on your machine
 ./run-h2spec-native.sh
 
-# Method 2: Clean output script (easiest to read)
-./run-h2spec-clean.sh
+# Containerized: Run in Docker for deterministic environment  
+./run-h2spec-native-docker.sh
 
-# For detailed analysis with either approach
-./run-h2spec-native.sh --verbose
-./run-h2spec-clean.sh --verbose
+# Both support development options:
+./run-h2spec-native.sh --verbose --keep-server
+./run-h2spec-native-docker.sh --verbose
 ```
 
-#### Method 1: Native H2SPEC Binary (Most Transparent)
+**Native Method** (`./run-h2spec-native.sh`):
+- Auto-installs h2spec binary if needed
+- Builds server from source locally
+- Maximum transparency with unmodified h2spec execution
+- Fastest iteration for development
 
-`./run-h2spec-native.sh` provides the highest level of transparency by:
-- **📥 Auto-installing** the official h2spec binary (if not present)
-- **🏗️ Building** the ht2 server from source (`examples/h2spec_server.cr`)
-- **🔧 Running** the unmodified h2spec binary directly against our server
-- **📊 Showing** complete, unfiltered test output
-- **✅ Proving** 100% compliance with zero modifications to the test suite
-
-**Benefits:**
-- **Maximum Transparency**: No Docker containers, no modifications, pure h2spec execution
-- **Verifiable Results**: Anyone can inspect the exact command: `h2spec -h localhost -p 8443 -t -k`
-- **Source Inspection**: Built server binary from visible Crystal source code
-- **Industry Standard**: Uses the same tool that HTTP/2 implementers worldwide rely on
-
-**Usage:**
-```bash
-# Run complete test suite with native binary
-./run-h2spec-native.sh
-
-# Keep server running for manual testing
-./run-h2spec-native.sh --keep-server
-
-# Verbose output with server logs
-./run-h2spec-native.sh --verbose
-```
-
-#### Method 2: Clean Docker Output
-
-**Alternative methods:**
-
-```bash
-# Docker Compose method (interleaved output, harder to read)
-docker compose -f docker-compose.h2spec.yml up --build --abort-on-container-exit
-
-# Manual method - Step by step
-# 1. Build the H2SPEC test image
-docker build -f Dockerfile.h2spec -t ht2-h2spec .
-
-# 2. Create network and start server
-docker network create h2spec-net
-docker run -d --name ht2-server --network h2spec-net ht2-h2spec ./h2spec_server --host 0.0.0.0
-
-# 3. Wait for server to be ready
-sleep 3
-
-# 4. Run H2SPEC test suite (all 146 tests)
-docker run --rm --network h2spec-net summerwind/h2spec:2.6.0 -h ht2-server -p 8443 -t -k
-
-# 5. Cleanup
-docker rm -f ht2-server
-docker network rm h2spec-net
-```
-
-**Output Benefits of `run-h2spec-clean.sh`:**
-- 🎯 **Clean test results**: No interleaved server logs
-- 📊 **Summary statistics**: Clear pass/fail/skip counts
-- 🎨 **Color-coded output**: Easy to scan for issues
-- ⏱️ **Timing information**: Test execution duration
-- 🧹 **Automatic cleanup**: No manual container management
-
-**Example clean output:**
-```
-🧪 Running H2SPEC compliance tests (146 tests)...
-==================================================
-
-Generic tests for HTTP/2 server
-  1. Starting HTTP/2
-      ✅ 1: Sends a client connection preface
-
-  2. Streams and Multiplexing
-      ✅ 1: Sends a PRIORITY frame on idle stream
-      ✅ 2: Sends a WINDOW_UPDATE frame on half-closed (remote) stream
-      ✅ 3: Sends a PRIORITY frame on half-closed (remote) stream
-      ✅ 4: Sends a RST_STREAM frame on half-closed (remote) stream
-      ✅ 5: Sends a PRIORITY frame on closed stream
-
-[... clean test output continues ...]
-
-Finished in 8.9662 seconds
-146 tests, 145 passed, 1 skipped, 0 failed
-
-==================================================
-📊 TEST RESULTS SUMMARY
-==================================================
-Summary: 146 tests, 145 passed, 1 skipped, 0 failed
-Duration: 15s
-
-✅ Passed: 145
-❌ Failed: 0
-⏭️  Skipped: 1
-🎯 Compliance Rate: 99%
-
-🏆 PERFECT HTTP/2 PROTOCOL COMPLIANCE!
-All required tests passed successfully.
-```
+**Containerized Method** (`./run-h2spec-native-docker.sh`):
+- Deterministic Docker environment
+- Same robnomad/crystal:ubuntu-hoard image as CI
+- Eliminates environment-specific issues
+- Matches production build environment
 
 ### Understanding H2SPEC Results
 
