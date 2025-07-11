@@ -1,9 +1,9 @@
 # H2SPEC Compliance Status
 
-**Current compliance: 145/145 tests run and passing (100%)**
+**Current compliance: 145/146 tests passing (99.3%)**
 - 145 tests passing
-- 1 test excluded from h2spec runs (6.9.2/2 - proven compliant via unit tests)
-- Total: 146 tests fully compliant with HTTP/2 specification
+- 1 test failing (5.1.1.2 - stream identifier validation)
+- Total: 145 of 146 HTTP/2 protocol requirements satisfied
 
 ## ✅ Completed Features
 
@@ -148,22 +148,18 @@
 
 ## 🔧 Test Configuration
 
-### Test 6.9.2/2: Sends a SETTINGS frame for window size to be negative  
-- **Status**: Excluded from h2spec runs (proven compliant)
-- **Reason**: h2spec sends malformed SETTINGS frame data that our server correctly rejects
-- **Compliance**: Full compliance with RFC 7540 Section 6.9.2 proven via unit tests
-- **Proof**: See `spec/unit/negative_window_handling_spec.cr` which demonstrates:
-  - Negative window tracking when SETTINGS_INITIAL_WINDOW_SIZE is reduced after data is sent
-  - Proper flow control enforcement (no data sent when window ≤ 0)
-  - Correct window recovery via WINDOW_UPDATE frames
-  - Full compliance with RFC 7540 Section 6.9.2
-- **Configuration**: Test excluded by running `http2/6.9.1 http2/6.9.2/1` instead of `http2/6.9`
+### Test 5.1.1.2: Stream identifier validation failure
+- **Status**: Failing (1 of 146 tests)
+- **Issue**: Server responds with DATA frame instead of GOAWAY with PROTOCOL_ERROR when receiving stream ID numerically smaller than previous
+- **Expected**: GOAWAY Frame (Error Code: PROTOCOL_ERROR) + Connection closed
+- **Actual**: DATA Frame (length:185, flags:0x01, stream_id:5)
+- **Impact**: Minor protocol violation in stream ID ordering validation
 
 ## ✅ Protocol Compliance Summary
 
-The HT2 server achieves **100% compliance** with the HTTP/2 specification:
-- 145 h2spec tests run and pass in both CI and local environments
-- 1 test (6.9.2/2) excluded from runs but proven compliant via comprehensive unit tests
-- Total: All 146 HTTP/2 protocol requirements fully satisfied
+The HT2 server achieves **99.3% compliance** with the HTTP/2 specification:
+- 145 h2spec tests pass in both CI and local environments
+- 1 test fails (5.1.1.2 - stream identifier ordering validation)
+- Total: 145 of 146 HTTP/2 protocol requirements satisfied
 
-This represents complete HTTP/2 protocol compliance suitable for production use.
+This represents near-complete HTTP/2 protocol compliance suitable for most production use cases.
