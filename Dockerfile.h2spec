@@ -1,24 +1,25 @@
 # Dockerfile for h2spec testing - extends Dockerfile.test
-FROM robnomad/crystal:dev-hoard
+FROM robnomad/crystal:ubuntu-hoard
 
 # Install system dependencies including OpenSSL for cert generation
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     curl \
     git \
     make \
     openssl \
-    openssl-dev \
+    libssl-dev \
     python3 \
-    py3-pip \
+    python3-pip \
     nodejs \
     npm \
     parallel \
     coreutils \
-    grep
+    grep \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Python packages with HTTP/2 support
-RUN pip3 install --break-system-packages "httpx[http2]" h2
+RUN pip3 install --no-cache-dir "httpx[http2]" h2 --break-system-packages
 
 # Install h2spec
 RUN ARCH=$(uname -m) && \

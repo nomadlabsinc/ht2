@@ -14,3 +14,12 @@
 
 # H2spec test results
 /h2spec-results/
+h2spec_results.txt
+h2spec_*.txt
+h2spec_*.json
+h2spec_native_results.txt
+server.log
+server.crt
+server.key
+h2spec_server
+h2spec
