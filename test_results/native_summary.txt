@@ -1,0 +1,30 @@
+=== Native Run 1 ===
+146 tests, 145 passed, 0 skipped, 1 failed
+Summary: 146 tests, 145 passed, 0 skipped, 1 failed
+=== Native Run 2 ===
+146 tests, 145 passed, 0 skipped, 1 failed
+Summary: 146 tests, 145 passed, 0 skipped, 1 failed
+=== Native Run 3 ===
+146 tests, 145 passed, 0 skipped, 1 failed
+Summary: 146 tests, 145 passed, 0 skipped, 1 failed
+=== Native Run 4 ===
+146 tests, 145 passed, 0 skipped, 1 failed
+Summary: 146 tests, 145 passed, 0 skipped, 1 failed
+=== Native Run 5 ===
+146 tests, 145 passed, 0 skipped, 1 failed
+Summary: 146 tests, 145 passed, 0 skipped, 1 failed
+=== Native Run 6 ===
+146 tests, 145 passed, 0 skipped, 1 failed
+Summary: 146 tests, 145 passed, 0 skipped, 1 failed
+=== Native Run 7 ===
+146 tests, 145 passed, 0 skipped, 1 failed
+Summary: 146 tests, 145 passed, 0 skipped, 1 failed
+=== Native Run 8 ===
+146 tests, 145 passed, 0 skipped, 1 failed
+Summary: 146 tests, 145 passed, 0 skipped, 1 failed
+=== Native Run 9 ===
+146 tests, 145 passed, 0 skipped, 1 failed
+Summary: 146 tests, 145 passed, 0 skipped, 1 failed
+=== Native Run 10 ===
+146 tests, 145 passed, 0 skipped, 1 failed
+Summary: 146 tests, 145 passed, 0 skipped, 1 failed

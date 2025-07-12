@@ -52,7 +52,7 @@ services:
     entrypoint: |
       sh -c "
         h2spec -h h2spec-server -p 8443 -t -k \
-          http2/6.9.1 http2/6.9.2/1 http2/6.10 http2/7 http2/8 hpack \
+          http2/6.9.1 http2/6.9.2 http2/6.10 http2/7 http2/8 hpack \
           | tee /results/part2_results.txt
       "
 

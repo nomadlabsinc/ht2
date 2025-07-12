@@ -108,7 +108,7 @@ echo -e "${PURPLE}📊 H2SPEC Test Results:${NC}"
 echo "=================================================="
 
 # Run h2spec against the server container using network (run all specs by default)
-if docker run --rm --network h2spec-test-net \
+if docker run --rm --platform linux/amd64 --network h2spec-test-net \
     summerwind/h2spec:latest \
     -h ht2-server -p 8443 -t -k | tee h2spec_native_docker_results.txt; then
     EXIT_CODE=0

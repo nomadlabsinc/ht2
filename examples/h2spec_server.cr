@@ -3,8 +3,8 @@
 require "../src/ht2"
 require "option_parser"
 
-# H2spec-compliant server that always sends exactly 1 byte of data
-# This ensures h2spec's ServerDataLength probe always succeeds
+# H2spec-compliant server that sends 5 bytes of data
+# This ensures all h2spec tests run, including 6.9.2/2 which requires >= 5 bytes
 
 # Configuration
 host : String = "0.0.0.0"
@@ -114,9 +114,9 @@ handler : HT2::Server::Handler = ->(request : HT2::Request, response : HT2::Resp
       return
     end
 
-    # Always send 1 byte of data for consistent h2spec behavior
-    # This ensures h2spec can always measure server data length
-    data_size = 1
+    # Send 5 bytes of data to ensure h2spec test 6.9.2/2 runs (requires >= 5 bytes)
+    # This ensures all h2spec tests can run, including flow control tests
+    data_size = 5
 
     response.headers["content-length"] = data_size.to_s
 
@@ -192,7 +192,7 @@ end
 # Start server
 puts "🚀 HT2 H2spec Server"
 puts "🔒 Listening on https://#{host}:#{port}"
-puts "📝 This server always sends exactly 1 byte of data for h2spec compliance"
+puts "📝 This server sends 5 bytes of data to ensure all h2spec tests run"
 puts ""
 puts "Run h2spec with:"
 puts "  h2spec -h #{host} -p #{port} -t -k"
