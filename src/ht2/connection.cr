@@ -685,7 +685,6 @@ module HT2
         handle_data_frame(frame)
       when HeadersFrame
         handle_headers_frame(frame)
-      
       when RstStreamFrame
         handle_rst_stream_frame(frame)
       when SettingsFrame
