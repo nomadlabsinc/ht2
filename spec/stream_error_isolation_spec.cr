@@ -27,7 +27,7 @@ describe "RFC9113 Compliance - Stream Error Isolation" do
         {":path", "/invalid"},
         {"INVALID-UPPERCASE-HEADER", "value"}, # Should cause PROTOCOL_ERROR on stream
       ]
-      
+
       begin
         headers_frame3 = HT2::HeadersFrame.new(3, conn.connection.hpack_encoder.encode(headers3), flags: HT2::FrameFlags::END_STREAM | HT2::FrameFlags::END_HEADERS)
         conn.send_frame(headers_frame3)
@@ -47,10 +47,10 @@ describe "RFC9113 Compliance - Stream Error Isolation" do
 
       # Should receive responses for valid streams (1 and 5)
       # May receive RST_STREAM for invalid stream (3)
-      
+
       response_count = 0
       stream_error_count = 0
-      
+
       # Collect responses for a reasonable time
       4.times do
         begin
@@ -59,13 +59,13 @@ describe "RFC9113 Compliance - Stream Error Isolation" do
         rescue
           break
         end
-        
+
         begin
           frame = conn.expect_frame(HT2::FrameType::DATA, timeout: 1.second)
         rescue
           # DATA frame might not come if stream errored
         end
-        
+
         begin
           frame = conn.expect_frame(HT2::FrameType::RST_STREAM, timeout: 1.second)
           stream_error_count += 1 if frame.is_a?(HT2::RstStreamFrame)
@@ -79,7 +79,7 @@ describe "RFC9113 Compliance - Stream Error Isolation" do
 
       # Connection should remain healthy despite stream errors
       conn.connection.closed?.should be_false
-      
+
       # Should not have received GOAWAY (connection-level error)
       begin
         goaway = conn.expect_frame(HT2::FrameType::GOAWAY, timeout: 1.second)
@@ -140,7 +140,6 @@ describe "RFC9113 Compliance - Stream Error Isolation" do
         response_headers = conn.expect_frame(HT2::FrameType::HEADERS, timeout: 3.seconds)
         response_headers.should be_a(HT2::HeadersFrame)
         response_headers.stream_id.should eq(3)
-
       rescue ex
         # Some validation errors might be caught earlier in the pipeline
         # The key is that the system handles the error gracefully

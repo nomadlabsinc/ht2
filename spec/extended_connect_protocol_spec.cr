@@ -53,7 +53,7 @@ describe "RFC9113 Compliance - Extended CONNECT Protocol Support" do
       begin
         response_headers = conn.expect_frame(HT2::FrameType::HEADERS)
         response_headers.should be_a(HT2::HeadersFrame)
-        
+
         # If supported, should get a normal response
         # If not supported, should get an appropriate error (like 501 Not Implemented)
         # But NOT a PROTOCOL_ERROR
@@ -63,7 +63,7 @@ describe "RFC9113 Compliance - Extended CONNECT Protocol Support" do
 
       # Connection should remain healthy - no protocol violations
       conn.connection.closed?.should be_false
-      
+
       # Specifically verify no GOAWAY with PROTOCOL_ERROR was sent
       conn.connection.metrics.errors_received.total.should eq(0)
     end
@@ -80,7 +80,7 @@ describe "RFC9113 Compliance - Extended CONNECT Protocol Support" do
         {":protocol", "websocket"},
         # Missing :scheme, :path, :authority for extended CONNECT
       ]
-      
+
       begin
         headers_frame = HT2::HeadersFrame.new(1, conn.connection.hpack_encoder.encode(headers), flags: HT2::FrameFlags::END_HEADERS)
         conn.send_frame(headers_frame)

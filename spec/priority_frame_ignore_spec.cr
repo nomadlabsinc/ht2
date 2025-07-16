@@ -12,11 +12,11 @@ describe "RFC9113 Compliance - PRIORITY Frame Deprecation" do
       # Send a PRIORITY frame (should be ignored)
       priority_payload = Bytes.new(5)
       # E flag = 0, stream dependency = 0, weight = 15
-      priority_payload[0] = 0x00_u8  # E flag + stream dependency (bits 31-24)
-      priority_payload[1] = 0x00_u8  # stream dependency (bits 23-16)
-      priority_payload[2] = 0x00_u8  # stream dependency (bits 15-8)
-      priority_payload[3] = 0x00_u8  # stream dependency (bits 7-0)
-      priority_payload[4] = 0x0F_u8  # weight (15)
+      priority_payload[0] = 0x00_u8 # E flag + stream dependency (bits 31-24)
+      priority_payload[1] = 0x00_u8 # stream dependency (bits 23-16)
+      priority_payload[2] = 0x00_u8 # stream dependency (bits 15-8)
+      priority_payload[3] = 0x00_u8 # stream dependency (bits 7-0)
+      priority_payload[4] = 0x0F_u8 # weight (15)
 
       # Create PRIORITY frame manually using UnknownFrame
       priority_frame = HT2::UnknownFrame.new(
@@ -64,7 +64,7 @@ describe "RFC9113 Compliance - PRIORITY Frame Deprecation" do
 
       # Create HEADERS frame with PRIORITY flag set
       header_block = conn.connection.hpack_encoder.encode(headers)
-      
+
       # Set PRIORITY flag along with other flags - this will test that priority info is ignored
       flags = HT2::FrameFlags::END_STREAM | HT2::FrameFlags::END_HEADERS | HT2::FrameFlags::PRIORITY
 
@@ -93,13 +93,13 @@ describe "RFC9113 Compliance - PRIORITY Frame Deprecation" do
       # Send PRIORITY frame establishing a dependency (should be ignored)
       priority_payload = Bytes.new(5)
       # Stream 3 depends on stream 1 with weight 100
-      priority_payload[0] = 0x00_u8  # E flag + stream dependency (bits 31-24)
-      priority_payload[1] = 0x00_u8  # stream dependency (bits 23-16)
-      priority_payload[2] = 0x00_u8  # stream dependency (bits 15-8)
-      priority_payload[3] = 0x01_u8  # stream dependency = 1 (bits 7-0)
-      priority_payload[4] = 0x64_u8  # weight = 100
+      priority_payload[0] = 0x00_u8 # E flag + stream dependency (bits 31-24)
+      priority_payload[1] = 0x00_u8 # stream dependency (bits 23-16)
+      priority_payload[2] = 0x00_u8 # stream dependency (bits 15-8)
+      priority_payload[3] = 0x01_u8 # stream dependency = 1 (bits 7-0)
+      priority_payload[4] = 0x64_u8 # weight = 100
 
-      # Create PRIORITY frame manually using UnknownFrame  
+      # Create PRIORITY frame manually using UnknownFrame
       priority_frame = HT2::UnknownFrame.new(
         3_u32,
         HT2::FrameType::PRIORITY,
@@ -117,8 +117,8 @@ describe "RFC9113 Compliance - PRIORITY Frame Deprecation" do
           {":path", "/stream-#{stream_id}"},
         ]
         headers_frame = HT2::HeadersFrame.new(
-          stream_id, 
-          conn.connection.hpack_encoder.encode(headers), 
+          stream_id,
+          conn.connection.hpack_encoder.encode(headers),
           flags: HT2::FrameFlags::END_STREAM | HT2::FrameFlags::END_HEADERS
         )
         conn.send_frame(headers_frame)

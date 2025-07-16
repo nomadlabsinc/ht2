@@ -3,8 +3,6 @@ require "./protocol_compliance_spec_helper"
 
 include ProtocolComplianceSpec
 
-
-
 describe "RFC9113 Compliance - Header Field Validation" do
   it "raises PROTOCOL_ERROR if :authority and Host headers are inconsistent" do
     with_test_connection do |conn|
