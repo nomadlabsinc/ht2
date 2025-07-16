@@ -129,13 +129,13 @@ describe "H2spec Compliance Integration Tests" do
       settings = HT2::SettingsFrame.new
       settings.write_to(client_socket)
 
-      # Send PRIORITY for stream 5 (idle)
-      priority_data = HT2::PriorityData.new(
-        stream_dependency: 0_u32,
-        weight: 16_u8,
-        exclusive: false
-      )
-      priority_frame = HT2::PriorityFrame.new(5_u32, priority_data)
+      # Send PRIORITY for stream 5 (idle) - using UnknownFrame per RFC 9113
+      # PRIORITY frame payload: E + 31-bit stream_dependency + 8-bit weight
+      priority_payload = Bytes[
+        0x00, 0x00, 0x00, 0x00, # stream dependency 0, not exclusive
+        0x10                    # weight 16
+      ]
+      priority_frame = HT2::UnknownFrame.new(5_u32, HT2::FrameType::PRIORITY, HT2::FrameFlags::None, priority_payload)
       priority_frame.write_to(client_socket)
 
       # Now send HEADERS for stream 1 (lower ID)
