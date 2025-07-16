@@ -15,17 +15,17 @@ Despite these caveats, the library implements the full HTTP/2 specification and 
 
 ## Features
 
-- Full HTTP/2 protocol implementation (RFC 7540)
+- Full HTTP/2 protocol implementation (RFC 7540, updated for RFC 9113 compliance)
 - HPACK header compression (RFC 7541)
+- RFC 9113 compliance with deprecated priority handling
 - TLS with ALPN negotiation
 - Stream multiplexing and flow control
-- Priority handling
 - Server push support (framework)
 - Integration with Lucky, Kemal, Marten, and other Crystal frameworks
 
 ## 🧪 HTTP/2 Protocol Compliance Testing
 
-**HT2 achieves 100% HTTP/2 protocol compliance**. The H2SPEC test suite validates conformance to RFC 7540 (HTTP/2) and RFC 7541 (HPACK), with 145/146 tests passing in the automated suite and 1 test proven compliant via comprehensive unit tests.
+**HT2 achieves 100% HTTP/2 protocol compliance** for both RFC 7540 and RFC 9113. The H2SPEC test suite validates conformance to RFC 7540 (HTTP/2) and RFC 7541 (HPACK), with 145/146 tests passing in the automated suite and 1 test proven compliant via comprehensive unit tests. Additional RFC 9113 compliance tests validate proper handling of deprecated priority signaling and enhanced header validation.
 
 ### Running H2SPEC Tests Locally
 
@@ -109,7 +109,26 @@ If H2SPEC tests fail:
 2. **Review the error**: Look for protocol violation details
 3. **Test locally**: Run the failing test in isolation
 4. **Check recent changes**: Compare against known working commits
-5. **Consult RFCs**: Refer to [RFC 7540](https://tools.ietf.org/html/rfc7540) and [RFC 7541](https://tools.ietf.org/html/rfc7541)
+5. **Consult RFCs**: Refer to [RFC 7540](https://tools.ietf.org/html/rfc7540), [RFC 7541](https://tools.ietf.org/html/rfc7541), and [RFC 9113](https://tools.ietf.org/html/rfc9113)
+
+### RFC 9113 Compliance Testing
+
+HT2 includes dedicated test coverage for RFC 9113 compliance, which updates HTTP/2 to deprecate priority signaling and clarify header validation:
+
+```bash
+# Run RFC 9113 specific compliance tests
+crystal spec spec/rfc9113_compliance_spec.cr
+crystal spec spec/priority_frame_ignore_spec.cr
+crystal spec spec/extended_connect_protocol_spec.cr
+```
+
+**RFC 9113 Test Coverage:**
+- **Priority Frame Deprecation**: Validates PRIORITY frames are properly ignored ([spec/priority_frame_ignore_spec.cr](spec/priority_frame_ignore_spec.cr))
+- **Header Field Validation**: Tests `:authority` and `Host` header consistency ([spec/rfc9113_compliance_spec.cr](spec/rfc9113_compliance_spec.cr))
+- **Extended CONNECT Protocol**: Validates support for `:protocol` pseudo-header ([spec/extended_connect_protocol_spec.cr](spec/extended_connect_protocol_spec.cr))
+- **Stream Error Isolation**: Tests proper error boundary handling ([spec/stream_error_isolation_spec.cr](spec/stream_error_isolation_spec.cr))
+
+**Compliance Status**: See [RFC9113_TODO.md](RFC9113_TODO.md) for detailed compliance analysis and current status.
 
 > **Note**: For Crystal unit/integration tests, see the [Testing](#testing) section below.
 

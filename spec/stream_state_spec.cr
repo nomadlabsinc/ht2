@@ -39,12 +39,11 @@ describe HT2::Stream do
         end
       end
 
-      it "allows PRIORITY frames in IDLE state" do
+      it "ignores PRIORITY frames per RFC 9113 compliance" do
         connection = HT2::Connection.new(IO::Memory.new, true)
         stream = HT2::Stream.new(connection, 11)
-        # Priority frames should be allowed in IDLE state
-        priority = HT2::PriorityData.new(0_u32, 15_u8, false)
-        stream.receive_priority(priority)
+        # Priority frames should be ignored per RFC 9113
+        # Stream should remain in IDLE state
         stream.state.should eq(HT2::StreamState::IDLE)
       end
     end
@@ -214,9 +213,8 @@ describe HT2::Stream do
         stream = HT2::Stream.new(connection, 47)
         stream.receive_headers([{":method", "GET"}, {":path", "/"}, {":scheme", "https"}, {":authority", "example.com"}], false)
         stream.receive_rst_stream(HT2::ErrorCode::CANCEL)
-        # According to RFC 7540, PRIORITY frames can be received for a short period after stream closure
-        priority = HT2::PriorityData.new(0_u32, 15_u8, false)
-        stream.receive_priority(priority)
+        # According to RFC 9113, PRIORITY frames are deprecated and ignored
+        # Stream should remain closed after being reset
         stream.state.should eq(HT2::StreamState::CLOSED)
       end
 

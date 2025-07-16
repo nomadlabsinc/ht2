@@ -95,21 +95,17 @@ describe HT2::HeadersFrame do
     parsed.header_block.should eq(header_block)
   end
 
-  it "handles priority correctly" do
+  it "handles HEADERS frame without priority (RFC 9113 compliance)" do
     header_block = "headers".to_slice
-    priority = HT2::PriorityData.new(3_u32, 15_u8, true)
-    frame = HT2::HeadersFrame.new(1_u32, header_block,
-      HT2::FrameFlags::END_HEADERS, 0_u8, priority)
+    frame = HT2::HeadersFrame.new(1_u32, header_block, HT2::FrameFlags::END_HEADERS)
 
-    frame.flags.priority?.should be_true
+    frame.flags.priority?.should be_false
 
     bytes = frame.to_bytes
     parsed = HT2::Frame.parse(bytes).as(HT2::HeadersFrame)
 
-    parsed_priority = parsed.priority || raise "No priority"
-    parsed_priority.stream_dependency.should eq(3)
-    parsed_priority.weight.should eq(15)
-    parsed_priority.exclusive?.should be_true
+    parsed.header_block.should eq(header_block)
+    parsed.flags.priority?.should be_false
   end
 end
 
