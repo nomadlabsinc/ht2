@@ -113,14 +113,18 @@ describe "RFC9113 Compliance - Stream Error Isolation" do
         begin
           rst_frame = conn.expect_frame(HT2::FrameType::RST_STREAM, timeout: 3.seconds)
           rst_frame.should be_a(HT2::RstStreamFrame)
-          rst_frame.stream_id.should eq(1)
-          rst_frame.error_code.should eq(HT2::ErrorCode::PROTOCOL_ERROR)
+          if rst_frame.is_a?(HT2::RstStreamFrame)
+            rst_frame.stream_id.should eq(1)
+            rst_frame.error_code.should eq(HT2::ErrorCode::PROTOCOL_ERROR)
+          end
         rescue
           # Might receive GOAWAY instead if implementation treats this as connection error
           goaway = conn.expect_frame(HT2::FrameType::GOAWAY, timeout: 3.seconds)
           goaway.should be_a(HT2::GoAwayFrame)
-          goaway.error_code.should eq(HT2::ErrorCode::PROTOCOL_ERROR)
-          return # Exit test if connection-level error (also valid)
+          if goaway.is_a?(HT2::GoAwayFrame)
+            goaway.error_code.should eq(HT2::ErrorCode::PROTOCOL_ERROR)
+          end
+          next # Exit test if connection-level error (also valid)
         end
 
         # If we got RST_STREAM, connection should still be healthy
@@ -139,7 +143,9 @@ describe "RFC9113 Compliance - Stream Error Isolation" do
         # Should get normal response
         response_headers = conn.expect_frame(HT2::FrameType::HEADERS, timeout: 3.seconds)
         response_headers.should be_a(HT2::HeadersFrame)
-        response_headers.stream_id.should eq(3)
+        if response_headers.is_a?(HT2::HeadersFrame)
+          response_headers.stream_id.should eq(3)
+        end
       rescue ex
         # Some validation errors might be caught earlier in the pipeline
         # The key is that the system handles the error gracefully
