@@ -9,11 +9,6 @@ crystal: '1.16.3'
 description: |
   HTTP/2 server implementation for Lucky framework
 
-dependencies:
-  h2o:
-    github: nomadlabsinc/h2o
-    branch: main
-
 development_dependencies:
   ameba:
     github: crystal-ameba/ameba
