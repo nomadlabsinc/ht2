@@ -44,6 +44,7 @@ module HT2
 
     property on_headers : HeaderCallback?
     property on_data : DataCallback?
+    property on_frame_processed : Proc(Frame, Nil)?
 
     def initialize(@socket : IO, @is_server : Bool = true, client_ip : String? = nil)
       @streams = Hash(UInt32, Stream).new
@@ -453,6 +454,7 @@ module HT2
 
       @goaway_sent = true
       frame = GoAwayFrame.new(@last_stream_id, error_code, debug_data.to_slice)
+      STDERR.puts "DEBUG: Sending GOAWAY frame: #{frame.to_bytes.hexstring}"
       begin
         send_frame(frame)
       rescue ex : IO::Error
@@ -561,117 +563,113 @@ module HT2
       @performance_metrics.record_bytes_sent(CONNECTION_PREFACE.bytesize.to_u64)
     end
 
-    private def read_loop
+    def read_loop
       loop do
+        break if @closed || @goaway_sent
+        process_single_frame
+      end
+    end
+
+    def process_single_frame
+      begin
+        # Read frame header using buffer pool
+        header_bytes = @buffer_pool.acquire(Frame::HEADER_SIZE)
         begin
-          # Read frame header using buffer pool
-          header_bytes = @buffer_pool.acquire(Frame::HEADER_SIZE)
-          begin
-            @socket.read_fully(header_bytes)
-          rescue ex : IO::Error
-            raise ex
-          end
-
-          length, _, _, stream_id = Frame.parse_header(header_bytes)
-
-          # Validate frame size against negotiated MAX_FRAME_SIZE
-          max_frame_size = @remote_settings[SettingsParameter::MAX_FRAME_SIZE]
-          begin
-            Security.validate_frame_size(length, max_frame_size)
-          rescue ex : ConnectionError
-            if ex.code == ErrorCode::FRAME_SIZE_ERROR
-              @performance_metrics.security_events.record_frame_size_violation
-            end
-            raise ex
-          end
-
-          # Track frame size for adaptive buffering
-          @adaptive_buffer_manager.record_frame_size(Frame::HEADER_SIZE + length)
-
-          # Acquire buffer for full frame
-          full_frame = @buffer_pool.acquire(Frame::HEADER_SIZE + length)
-
-          # Copy header
-          header_bytes.copy_to(full_frame)
-
-          # Read payload directly into buffer
-          if length > 0
-            @socket.read_fully(full_frame[Frame::HEADER_SIZE, length])
-          end
-
-          # Log raw frame bytes if debug mode is enabled
-          raw_frame = full_frame[0, Frame::HEADER_SIZE + length]
-          DebugMode.log_raw_frame(@connection_id, DebugMode::Direction::Inbound, raw_frame)
-
-          # Parse and handle frame
-          frame = Frame.parse(full_frame[0, Frame::HEADER_SIZE + length])
-
-          # Log parsed frame if debug mode is enabled
-          DebugMode.log_frame(@connection_id, DebugMode::Direction::Inbound, frame)
-
-          # Track metrics
-          @metrics.record_frame_received(frame)
-          @metrics.record_bytes_received(Frame::HEADER_SIZE + length)
-          @performance_metrics.record_bytes_received((Frame::HEADER_SIZE + length).to_u64)
-
-          handle_frame(frame)
-
-          # Release buffers back to pool
-          @buffer_pool.release(header_bytes)
-          @buffer_pool.release(full_frame)
-
-          # Check if we should continue reading
-          if @closed || @goaway_sent
-            break
-          end
-
-          # Periodically adapt read buffer size
-          if @adaptive_buffer_manager.should_adapt?
-            new_size = @adaptive_buffer_manager.recommended_read_buffer_size
-            if new_size != @read_buffer.size
-              @read_buffer = Bytes.new(new_size)
-            end
-          end
+          @socket.read_fully(header_bytes)
         rescue ex : IO::Error
-          # Log IO errors for debugging
-          # Socket closed check removed
-          break
-        rescue ex : ConnectionError
-          # Track connection errors
-          @metrics.record_connection_error
-
-          send_goaway(ex.code, ex.message || "")
-          # Flush immediately to ensure GOAWAY is sent
-          @socket.flush rescue nil
-          # Mark connection as closed immediately
-          @closed = true
-          break
-        rescue ex : StreamError
-          stream = @streams[ex.stream_id]?
-          if stream
-            stream.send_rst_stream(ex.code)
-          else
-            # Stream doesn't exist (already closed), send RST_STREAM directly
-            send_frame(RstStreamFrame.new(ex.stream_id, ex.code))
-          end
-          # Flush the frame immediately instead of sleeping
-          @socket.flush rescue nil
-
-          # If we're seeing too many stream errors, close the connection
-          @metrics.record_stream_error
-          if @metrics.recent_stream_errors > 5
-            Log.warn { "Too many stream errors (#{@metrics.recent_stream_errors}), closing connection" }
-            send_goaway(ErrorCode::ENHANCE_YOUR_CALM, "Too many errors")
-            @closed = true
-            break
-          end
-        rescue ex
-          Log.error { "Read loop unexpected error: #{ex.class} - #{ex.message}" }
           raise ex
         end
+
+        length, _, _, stream_id = Frame.parse_header(header_bytes)
+
+        # Validate frame size against negotiated MAX_FRAME_SIZE
+        max_frame_size = @remote_settings[SettingsParameter::MAX_FRAME_SIZE]
+        begin
+          Security.validate_frame_size(length, max_frame_size)
+        rescue ex : ConnectionError
+          if ex.code == ErrorCode::FRAME_SIZE_ERROR
+            @performance_metrics.security_events.record_frame_size_violation
+          end
+          raise ex
+        end
+
+        # Track frame size for adaptive buffering
+        @adaptive_buffer_manager.record_frame_size(Frame::HEADER_SIZE + length)
+
+        # Acquire buffer for full frame
+        full_frame = @buffer_pool.acquire(Frame::HEADER_SIZE + length)
+
+        # Copy header
+        header_bytes.copy_to(full_frame)
+
+        # Read payload directly into buffer
+        if length > 0
+          @socket.read_fully(full_frame[Frame::HEADER_SIZE, length])
+        end
+
+        # Log raw frame bytes if debug mode is enabled
+        raw_frame = full_frame[0, Frame::HEADER_SIZE + length]
+        DebugMode.log_raw_frame(@connection_id, DebugMode::Direction::Inbound, raw_frame)
+
+        # Parse and handle frame
+        frame = Frame.parse(full_frame[0, Frame::HEADER_SIZE + length])
+
+        # Log parsed frame if debug mode is enabled
+        DebugMode.log_frame(@connection_id, DebugMode::Direction::Inbound, frame)
+
+        # Track metrics
+        @metrics.record_frame_received(frame)
+        @metrics.record_bytes_received(Frame::HEADER_SIZE + length)
+        @performance_metrics.record_bytes_received((Frame::HEADER_SIZE + length).to_u64)
+
+        handle_frame(frame)
+
+        # Release buffers back to pool
+        @buffer_pool.release(header_bytes)
+        @buffer_pool.release(full_frame)
+
+        # Periodically adapt read buffer size
+        if @adaptive_buffer_manager.should_adapt?
+          new_size = @adaptive_buffer_manager.recommended_read_buffer_size
+          if new_size != @read_buffer.size
+            @read_buffer = Bytes.new(new_size)
+          end
+        end
+      rescue ex : IO::Error
+        # Log IO errors for debugging
+        # Socket closed check removed
+        close
+      rescue ex : ConnectionError
+        # Track connection errors
+        @metrics.record_connection_error
+
+        send_goaway(ex.code, ex.message || "")
+        # Flush immediately to ensure GOAWAY is sent
+        @socket.flush rescue nil
+        # Mark connection as closed immediately
+        @closed = true
+      rescue ex : StreamError
+        stream = @streams[ex.stream_id]?
+        if stream
+          stream.send_rst_stream(ex.code)
+        else
+          # Stream doesn't exist (already closed), send RST_STREAM directly
+          send_frame(RstStreamFrame.new(ex.stream_id, ex.code))
+        end
+        # Flush the frame immediately instead of sleeping
+        @socket.flush rescue nil
+
+        # If we're seeing too many stream errors, close the connection
+        @metrics.record_stream_error
+        if @metrics.recent_stream_errors > 5
+          Log.warn { "Too many stream errors (#{@metrics.recent_stream_errors}), closing connection" }
+          send_goaway(ErrorCode::ENHANCE_YOUR_CALM, "Too many errors")
+          @closed = true
+        end
+      rescue ex
+        Log.error { "Read loop unexpected error: #{ex.class} - #{ex.message}" }
+        raise ex
       end
-    ensure
-      close
     end
 
     private def handle_frame(frame : Frame)
@@ -687,8 +685,7 @@ module HT2
         handle_data_frame(frame)
       when HeadersFrame
         handle_headers_frame(frame)
-      when PriorityFrame
-        handle_priority_frame(frame)
+      
       when RstStreamFrame
         handle_rst_stream_frame(frame)
       when SettingsFrame
@@ -703,6 +700,10 @@ module HT2
         handle_window_update_frame(frame)
       when ContinuationFrame
         handle_continuation_frame(frame)
+      end
+
+      if callback = @on_frame_processed
+        callback.call(frame)
       end
     end
 
@@ -766,10 +767,6 @@ module HT2
       stream = get_or_create_stream(frame.stream_id)
 
       # HEADERS frame debug info removed
-
-      if priority = frame.priority
-        stream.receive_priority(priority)
-      end
 
       if frame.flags.end_headers?
         # Complete headers
@@ -901,33 +898,8 @@ module HT2
     end
 
     private def handle_priority_frame(frame : PriorityFrame)
-      unless @priority_rate_limiter.check
-        @performance_metrics.security_events.record_priority_flood_attempt
-        raise ConnectionError.new(ErrorCode::ENHANCE_YOUR_CALM, "PRIORITY flood detected")
-      end
-
-      # Check if stream already exists
-      if stream = @streams[frame.stream_id]?
-        # Existing stream - just update priority
-        stream.receive_priority(frame.priority)
-      else
-        # Stream doesn't exist - could be an idle stream
-        # For idle streams, we create a priority-only placeholder without updating last_stream_id
-        # per RFC 7540 Section 5.3.2: PRIORITY can be sent for streams in any state
-
-        # Still need to validate stream ID format
-        if frame.stream_id.even?
-          raise ConnectionError.new(ErrorCode::PROTOCOL_ERROR, "Client must use odd-numbered stream IDs")
-        end
-
-        # Create stream without updating last_stream_id for idle streams
-        stream = Stream.new(self, frame.stream_id, StreamState::IDLE)
-        stream.receive_priority(frame.priority)
-        @streams[frame.stream_id] = stream
-
-        # Don't update last_stream_id for priority-only streams
-        # This allows lower stream IDs to be created later
-      end
+      # RFC 9113 deprecates PRIORITY frames. They should be ignored.
+      # No action needed, simply return.
     end
 
     private def handle_rst_stream_frame(frame : RstStreamFrame)
@@ -1528,7 +1500,6 @@ module HT2
       str << "    State: #{stream.state}\n"
       str << "    Send Window: #{stream.send_window_size}\n"
       str << "    Recv Window: #{stream.recv_window_size}\n"
-      str << "    Priority: #{stream.priority}\n"
       str << "    End Stream Sent: #{stream.end_stream_sent?}\n"
       str << "    End Stream Received: #{stream.end_stream_received?}\n"
     end
