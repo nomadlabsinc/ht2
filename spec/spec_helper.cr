@@ -40,7 +40,7 @@ class MockBidirectionalSocket < IO
   end
 
   def initialize(@read_io : IO::Memory, @write_io : IO::Memory)
-    @read_buffer = Bytes.new(4096) # Initial buffer size  
+    @read_buffer = Bytes.new(4096) # Initial buffer size
     @read_buffer_pos = 0
     @read_buffer_size = 0
     @write_channel = Channel(Bytes).new
