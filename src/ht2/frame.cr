@@ -74,7 +74,9 @@ module HT2
       length = (bytes[0].to_u32 << 16) | (bytes[1].to_u32 << 8) | bytes[2].to_u32
 
       # Type
-      type = FrameType.new(bytes[3])
+      type_byte = bytes[3]
+      puts "DEBUG: Frame.parse_header received type_byte: #{type_byte.to_s(16)}"
+      type = FrameType.new(type_byte)
 
       # Flags
       flags = FrameFlags.new(bytes[4])
@@ -95,14 +97,13 @@ module HT2
       end
 
       payload = bytes[HEADER_SIZE, length]
+      puts "DEBUG: Frame.parse - type: #{type.value.to_s(16)}, length: #{length}, stream_id: #{stream_id}"
 
       case type
       when FrameType::DATA
         DataFrame.parse_payload(stream_id, flags, payload)
       when FrameType::HEADERS
         HeadersFrame.parse_payload(stream_id, flags, payload)
-      when FrameType::PRIORITY
-        PriorityFrame.parse_payload(stream_id, flags, payload)
       when FrameType::RST_STREAM
         RstStreamFrame.parse_payload(stream_id, flags, payload)
       when FrameType::SETTINGS

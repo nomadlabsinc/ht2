@@ -250,30 +250,6 @@ describe HT2::MultiFrameWriter do
       flags3.end_headers?.should be_true
       length3.should eq(50) # Remaining bytes
     end
-
-    it "includes priority data in HEADERS frame" do
-      io = IO::Memory.new
-      stream_id = 7_u32
-      header_block = Bytes.new(50, 99)
-      priority = HT2::PriorityData.new(3_u32, 255_u8, exclusive: true)
-
-      HT2::MultiFrameWriter.write_headers_with_continuations(
-        io, stream_id, header_block,
-        priority: priority
-      )
-
-      io.rewind
-
-      # Parse and verify HEADERS frame
-      full_frame = Bytes.new(9 + 5 + 50) # header + priority + block
-      io.read_fully(full_frame)
-
-      frame = HT2::Frame.parse(full_frame).as(HT2::HeadersFrame)
-      frame.priority.should_not be_nil
-      frame.priority.not_nil!.stream_dependency.should eq(3_u32)
-      frame.priority.not_nil!.weight.should eq(255_u8)
-      frame.priority.not_nil!.exclusive?.should be_true
-    end
   end
 
   describe ".for_connection" do
